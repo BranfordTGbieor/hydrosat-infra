@@ -27,7 +27,7 @@ Run these sections in order:
 1. Local static validation
 2. Placeholder replacement validation
 3. GitHub Environment protection validation
-4. Bootstrap backend validation
+4. Backend prerequisite validation
 5. Platform Terraform validation
 6. Terraform plan and apply
 7. Cluster access validation
@@ -46,7 +46,6 @@ Create a working copy of the example vars:
 
 ```bash
 cd /home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra
-cp terraform/bootstrap/terraform.tfvars.example terraform/bootstrap/terraform.tfvars
 cp terraform/backend.hcl.example terraform/backend.hcl
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 ```
@@ -218,9 +217,7 @@ Failure signs:
 Commands:
 
 ```bash
-terraform fmt -check -recursive terraform terraform/bootstrap
-terraform -chdir=terraform/bootstrap init -backend=false
-terraform -chdir=terraform/bootstrap validate
+terraform fmt -check -recursive terraform
 terraform -chdir=terraform init -backend=false
 terraform -chdir=terraform validate
 ```
@@ -306,34 +303,34 @@ Failure signs:
 - bad values structure
 - version mismatch
 
-## 6. Bootstrap Backend Validation
+## 6. Backend Prerequisite Validation
 
-### 6.1 Component: Remote State Bootstrap Stack
+### 6.1 Component: Remote State Backend Inputs
 
 Files:
 
-- [terraform/bootstrap/main.tf](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/terraform/bootstrap/main.tf)
 - [terraform/backend.hcl.example](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/terraform/backend.hcl.example)
+- [terraform/backend.hcl](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/terraform/backend.hcl)
 
 Commands:
 
 ```bash
-terraform -chdir=terraform/bootstrap plan
-terraform -chdir=terraform/bootstrap apply
-terraform -chdir=terraform/bootstrap output
+cat terraform/backend.hcl
+aws s3api head-bucket --bucket "<state-bucket-name>"
+aws dynamodb describe-table --table-name "<lock-table-name>"
 ```
 
 Expected success:
 
-- plan shows S3 bucket and DynamoDB table resources for Terraform state
-- apply finishes with `Apply complete!`
-- outputs include backend bucket and lock table names
+- `backend.hcl` points at a real S3 bucket and DynamoDB table
+- the bucket already exists and is reachable
+- the lock table already exists and is reachable
 
 Failure signs:
 
-- bucket name collision
-- insufficient AWS permissions
-- invalid region or provider authentication failure
+- bucket name typo or region mismatch
+- missing lock table
+- insufficient AWS permissions to inspect backend resources
 
 ## 7. Platform Terraform Validation
 
@@ -972,31 +969,31 @@ Failure signs:
 - security groups in use
 - lingering ENIs or finalizers
 
-### 16.2 Component: Bootstrap Destroy
+### 16.2 Component: Optional Backend Cleanup
 
-Only do this after the main platform stack is gone and state has been migrated or no longer needed.
+Only do this after the main platform stack is gone and remote state is no longer needed.
 
 Commands:
 
 ```bash
-terraform -chdir=terraform/bootstrap plan -destroy
-terraform -chdir=terraform/bootstrap destroy
+aws dynamodb delete-table --table-name "<lock-table-name>"
+aws s3 rb "s3://<state-bucket-name>" --force
 ```
 
 Expected success:
 
-- state bucket and lock table are removed
+- lock table and state bucket are removed
 
 Failure signs:
 
 - bucket not empty
-- state backend still in use
+- backend still in use by Terraform
 
 ## 17. Completion Criteria
 
 You can treat infra validation as complete when all of the following are true:
 
-- Terraform bootstrap and platform stacks both validate and apply cleanly
+- Terraform backend prerequisite and platform stack both validate cleanly
 - EKS cluster is reachable
 - the S3 data lake bucket exists and Dagster IRSA is configured
 - Argo CD apps are `Synced` and `Healthy`

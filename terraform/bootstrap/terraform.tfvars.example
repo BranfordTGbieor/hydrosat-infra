@@ -1,6 +1,0 @@
-aws_region        = "us-east-1"
-project_name      = "hydrosat"
-environment       = "dev"
-state_bucket_name = "hydrosat-<unique-suffix>-tf-state"
-lock_table_name   = "hydrosat-terraform-locks"
-

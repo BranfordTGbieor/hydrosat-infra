@@ -70,7 +70,6 @@ This repo is the infrastructure half of a split-repo model:
 | Path | Purpose |
 | --- | --- |
 | `terraform/` | Main AWS platform stack |
-| `terraform/bootstrap/` | Remote-state bootstrap stack |
 | `terraform/modules/` | Reusable infrastructure modules |
 | `helm/dagster/` | Dagster Helm chart |
 | `gitops/argocd/` | Argo CD bootstrap, project, apps, and Helm values |
@@ -140,10 +139,9 @@ flowchart TD
 
 ### Infrastructure
 
-Terraform is split into two layers:
+Terraform in this repo focuses on the platform stack in `terraform/`.
 
-- `terraform/bootstrap/` creates the remote backend
-- `terraform/` provisions the platform
+Remote backend resources such as the S3 state bucket and DynamoDB lock table are treated as a one-time prerequisite rather than first-class infrastructure code in this repository.
 
 The platform stack is decomposed into:
 
@@ -152,7 +150,7 @@ The platform stack is decomposed into:
 - `platform`
 - `rds`
 
-That split keeps state boundaries clean and makes the design easier to explain than a monolithic stack.
+That keeps the repo focused on the actual platform while still supporting a standard remote-state workflow.
 
 ### Kubernetes and Dagster
 
@@ -321,9 +319,21 @@ Local-only files:
 | `terraform/terraform.tfvars` | Local Terraform inputs |
 | `.env` | Optional convenience environment values |
 
-### 2. Provision the Platform
+### 2. Prepare the Terraform Backend
 
-If you still need the remote state backend, provision `terraform/bootstrap/` first. Otherwise, work directly in `terraform/`.
+Create the S3 state bucket and DynamoDB lock table once in your AWS account by whatever standard method your team prefers. For this exercise, a one-time manual creation is acceptable and keeps the repo simpler.
+
+Then populate `terraform/backend.hcl` with the backend values:
+
+```hcl
+bucket         = "hydrosat-<unique-suffix>-tf-state"
+dynamodb_table = "hydrosat-terraform-locks"
+region         = "us-east-1"
+key            = "dev/platform.tfstate"
+encrypt        = true
+```
+
+### 3. Provision the Platform
 
 Main platform flow:
 
@@ -339,7 +349,7 @@ Useful optional inputs:
 - `cluster_endpoint_public_access_cidrs` to narrow API exposure
 - `alertmanager_notifier_secret_arn` to scope External Secrets access to the notifier secret
 
-### 3. Configure `kubectl`
+### 4. Configure `kubectl`
 
 ```bash
 aws eks update-kubeconfig \
@@ -347,13 +357,13 @@ aws eks update-kubeconfig \
   --name "$(terraform output -raw cluster_name)"
 ```
 
-### 4. Prepare the Dagster Image
+### 5. Prepare the Dagster Image
 
 The application image is expected to be built and published from `hydrosat-data`.
 
 This infra repo consumes an explicit image repository and tag through the Helm chart. In the implemented split-repo flow, `hydrosat-data` publishes application images to Docker Hub and version-tag releases trigger this repo to update the deployed image tag through GitOps-managed values.
 
-### 5. Prepare Secrets Manager Inputs
+### 6. Prepare Secrets Manager Inputs
 
 The GitOps flow expects:
 
@@ -374,7 +384,7 @@ Example notifier secret payload:
 }
 ```
 
-### 6. Deploy with Argo CD
+### 7. Deploy with Argo CD
 
 This is the preferred steady-state path.
 
@@ -398,7 +408,7 @@ Then apply the root application:
 kubectl apply -f gitops/argocd/bootstrap/root-application.yaml
 ```
 
-### 7. Deploy Imperatively with Helm
+### 8. Deploy Imperatively with Helm
 
 This path is for local validation and break-glass troubleshooting, not steady-state operations.
 
@@ -461,11 +471,6 @@ helm template hydrosat-dagster helm/dagster
 Terraform checks:
 
 ```bash
-cd terraform/bootstrap
-terraform init -backend=false
-terraform validate
-
-cd ../
 terraform init -backend=false
 terraform validate
 ```
@@ -480,7 +485,7 @@ It covers:
 
 - Terraform formatting
 - Checkov security scanning
-- Terraform validation for both `terraform/bootstrap` and `terraform/`
+- Terraform validation for `terraform/`
 - Helm lint for the Dagster chart
 - Helm rendering for Dagster and GitOps-managed charts
 
@@ -740,9 +745,9 @@ helm uninstall hydrosat-dagster -n dagster
 terraform destroy
 ```
 
-Remote backend bootstrap cleanup:
+Optional remote backend cleanup:
 
 ```bash
-cd terraform/bootstrap
-terraform destroy -var="state_bucket_name=hydrosat-<unique-suffix>-tf-state"
+aws dynamodb delete-table --table-name hydrosat-terraform-locks
+aws s3 rb s3://hydrosat-<unique-suffix>-tf-state --force
 ```
