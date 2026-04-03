@@ -1,6 +1,6 @@
 image:
   repository: docker.io/gbieor/hydrosat-data
-  tag: latest
+  tag: v0.1.0
 
 alerting:
   alertmanagerUrl: http://hydrosat-monitoring-alertmanager.monitoring.svc.cluster.local:9093/api/v2/alerts
