@@ -83,7 +83,7 @@ variable "cluster_endpoint_public_access_cidrs" {
 variable "node_instance_type" {
   description = "Managed node group instance type."
   type        = string
-  default     = "t3.medium"
+  default     = "t3.small"
 }
 
 variable "node_desired_size" {
@@ -140,6 +140,18 @@ variable "enable_service_kms_hardening" {
   default     = true
 }
 
+variable "enable_vpc_flow_logs" {
+  description = "Whether to enable VPC Flow Logs for the demo environment."
+  type        = bool
+  default     = true
+}
+
+variable "vpc_flow_log_retention_in_days" {
+  description = "CloudWatch retention for VPC Flow Logs."
+  type        = number
+  default     = 7
+}
+
 variable "db_name" {
   description = "Dagster metadata database name."
   type        = string
@@ -186,6 +198,18 @@ variable "db_skip_final_snapshot" {
   description = "Skip final snapshot on destroy for the take-home environment."
   type        = bool
   default     = true
+}
+
+variable "db_enable_performance_insights" {
+  description = "Whether to enable RDS Performance Insights."
+  type        = bool
+  default     = false
+}
+
+variable "db_enable_enhanced_monitoring" {
+  description = "Whether to enable RDS Enhanced Monitoring."
+  type        = bool
+  default     = false
 }
 
 variable "extra_tags" {

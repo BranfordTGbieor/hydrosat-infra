@@ -6,6 +6,14 @@ variable "enable_kms_hardening" {
   type = bool
 }
 
+variable "enable_flow_logs" {
+  type = bool
+}
+
+variable "flow_log_retention" {
+  type = number
+}
+
 variable "vpc_cidr" {
   type = string
 }

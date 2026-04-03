@@ -72,7 +72,8 @@ resource "aws_db_parameter_group" "this" {
 }
 
 resource "aws_iam_role" "enhanced_monitoring" {
-  name = "${var.name_prefix}-rds-monitoring"
+  count = var.enable_enhanced_monitoring ? 1 : 0
+  name  = "${var.name_prefix}-rds-monitoring"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -94,7 +95,8 @@ resource "aws_iam_role" "enhanced_monitoring" {
 }
 
 resource "aws_iam_role_policy_attachment" "enhanced_monitoring" {
-  role       = aws_iam_role.enhanced_monitoring.name
+  count      = var.enable_enhanced_monitoring ? 1 : 0
+  role       = aws_iam_role.enhanced_monitoring[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
 }
 
@@ -126,11 +128,11 @@ resource "aws_db_instance" "this" {
   iam_database_authentication_enabled   = true
   enabled_cloudwatch_logs_exports       = ["postgresql", "upgrade"]
   parameter_group_name                  = aws_db_parameter_group.this.name
-  performance_insights_enabled          = true
-  performance_insights_kms_key_id       = data.aws_kms_alias.rds.target_key_arn
-  performance_insights_retention_period = 7
-  monitoring_interval                   = 60
-  monitoring_role_arn                   = aws_iam_role.enhanced_monitoring.arn
+  performance_insights_enabled          = var.enable_performance_insights
+  performance_insights_kms_key_id       = var.enable_performance_insights ? data.aws_kms_alias.rds.target_key_arn : null
+  performance_insights_retention_period = var.enable_performance_insights ? 7 : null
+  monitoring_interval                   = var.enable_enhanced_monitoring ? 60 : 0
+  monitoring_role_arn                   = var.enable_enhanced_monitoring ? aws_iam_role.enhanced_monitoring[0].arn : null
 
   tags = merge(var.common_tags, {
     Name      = "${var.name_prefix}-dagster"

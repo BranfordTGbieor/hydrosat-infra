@@ -1,5 +1,5 @@
 data "aws_kms_alias" "cloudwatch" {
-  count = var.enable_kms_hardening ? 1 : 0
+  count = var.enable_flow_logs && var.enable_kms_hardening ? 1 : 0
   name  = "alias/aws/logs"
 }
 
@@ -15,9 +15,10 @@ resource "aws_vpc" "this" {
 }
 
 resource "aws_cloudwatch_log_group" "flow_logs" {
+  count             = var.enable_flow_logs ? 1 : 0
   name              = "/aws/vpc/${var.name_prefix}/flow-logs"
   kms_key_id        = var.enable_kms_hardening ? data.aws_kms_alias.cloudwatch[0].target_key_arn : null
-  retention_in_days = 365
+  retention_in_days = var.flow_log_retention
 
   tags = merge(var.common_tags, {
     Name      = "${var.name_prefix}-flow-logs"
@@ -26,7 +27,8 @@ resource "aws_cloudwatch_log_group" "flow_logs" {
 }
 
 resource "aws_iam_role" "flow_logs" {
-  name = "${var.name_prefix}-vpc-flow-logs"
+  count = var.enable_flow_logs ? 1 : 0
+  name  = "${var.name_prefix}-vpc-flow-logs"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -48,8 +50,9 @@ resource "aws_iam_role" "flow_logs" {
 }
 
 resource "aws_iam_role_policy" "flow_logs" {
-  name = "${var.name_prefix}-vpc-flow-logs"
-  role = aws_iam_role.flow_logs.id
+  count = var.enable_flow_logs ? 1 : 0
+  name  = "${var.name_prefix}-vpc-flow-logs"
+  role  = aws_iam_role.flow_logs[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -63,15 +66,16 @@ resource "aws_iam_role_policy" "flow_logs" {
           "logs:DescribeLogGroups",
           "logs:DescribeLogStreams",
         ]
-        Resource = "${aws_cloudwatch_log_group.flow_logs.arn}:*"
+        Resource = "${aws_cloudwatch_log_group.flow_logs[0].arn}:*"
       }
     ]
   })
 }
 
 resource "aws_flow_log" "this" {
-  iam_role_arn         = aws_iam_role.flow_logs.arn
-  log_destination      = aws_cloudwatch_log_group.flow_logs.arn
+  count                = var.enable_flow_logs ? 1 : 0
+  iam_role_arn         = aws_iam_role.flow_logs[0].arn
+  log_destination      = aws_cloudwatch_log_group.flow_logs[0].arn
   traffic_type         = "ALL"
   vpc_id               = aws_vpc.this.id
   log_destination_type = "cloud-watch-logs"

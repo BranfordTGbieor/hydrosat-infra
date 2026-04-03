@@ -46,6 +46,14 @@ variable "skip_final_snapshot" {
   type = bool
 }
 
+variable "enable_performance_insights" {
+  type = bool
+}
+
+variable "enable_enhanced_monitoring" {
+  type = bool
+}
+
 variable "common_tags" {
   type = map(string)
 }

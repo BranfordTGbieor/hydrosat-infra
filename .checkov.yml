@@ -1,15 +1,21 @@
+# Demo-only policy exceptions:
+# - public EKS endpoint and broad CIDR simplify short-lived review access
+# - optional EKS secrets encryption avoids AWS-managed KMS alias issues in some demo accounts
+# - public subnets with public IP assignment are required for the LB/NAT tier
+# - broad SG egress supports Docker Hub, AWS APIs, and webhook delivery from private workloads
+# - Single-AZ RDS, no deletion protection, and disabled PI/Enhanced Monitoring reduce demo cost
+# - short VPC Flow Log retention reduces demo log cost
+# - S3 CRR and S3 event notifications are intentionally omitted for this direct-orchestration demo
 skip-check:
-  # Demo environment keeps RDS Single-AZ by default to reduce short-lived interview cost.
-  # Production guidance remains documented in the README and can be enabled with db_multi_az=true.
-  - CKV_AWS_157
-  - CKV_AWS_144
-  - CKV2_AWS_62
-  - CKV_AWS_382
-  - CKV_AWS_39
   - CKV_AWS_38
+  - CKV_AWS_39
   - CKV_AWS_58
+  - CKV_AWS_118
   - CKV_AWS_130
+  - CKV_AWS_144
+  - CKV_AWS_157
   - CKV_AWS_293
-  - CKV_AWS_356
-  - CKV_AWS_111
-  - CKV_AWS_109
+  - CKV_AWS_338
+  - CKV_AWS_353
+  - CKV_AWS_382
+  - CKV2_AWS_62

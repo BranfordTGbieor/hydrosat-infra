@@ -624,8 +624,11 @@ Resource tags include:
 
 Current demo defaults are intentionally modest:
 
-- EKS node group: `t3.medium`, `min=2`, `desired=2`, `max=3`
+- EKS node group: `t3.small`, `min=2`, `desired=2`, `max=3`
 - RDS: PostgreSQL 16 on `db.t4g.micro`, `Multi-AZ = false`
+- VPC Flow Logs: enabled with `7d` retention
+- RDS Performance Insights: disabled
+- RDS Enhanced Monitoring: disabled
 - Prometheus retention: `3d` on `8Gi`
 - Loki retention: `72h` on `5Gi`
 - Alertmanager retention: `24h` on `1Gi`
@@ -636,9 +639,11 @@ The goal is to keep the review environment inexpensive without changing the over
 
 | Area | Demo default in repo | Production-leaning recommendation | Why |
 | --- | --- | --- | --- |
-| EKS nodes | `t3.medium`, `min=2`, `desired=2`, `max=3` | start at `min=2`, `desired=2`, `max=4+` with sizing based on real load | two nodes are still the minimum sane baseline once Dagster, Argo CD, and observability share a cluster |
+| EKS nodes | `t3.small`, `min=2`, `desired=2`, `max=3` | start at `min=2`, `desired=2`, `max=4+` with sizing based on real load | two nodes are still the minimum sane baseline once Dagster, Argo CD, and observability share a cluster |
 | RDS topology | `db.t4g.micro`, `Multi-AZ = false` | `db.t4g.small` or higher, `Multi-AZ = true` | the demo optimizes cost; production should optimize availability first |
 | RDS storage | `20 GiB`, autoscale to `100 GiB` | keep autoscaling, raise floor only if usage justifies it | autoscaling is already the better pattern than fixed overprovisioning |
+| VPC Flow Logs | enabled, `7d` retention | `30d+` retention or org-standard log archival | short retention preserves the network-visibility story without paying for a long audit window |
+| RDS telemetry | Performance Insights and Enhanced Monitoring disabled | enable both when deeper DB troubleshooting justifies the spend | optional RDS telemetry is easy to restore later, but not necessary for a short-lived demo |
 | Prometheus | `3d`, `8Gi` | `7d-15d` with storage sized from scrape volume | short retention is fine for a demo, but longer windows help real incident review |
 | Loki | `72h`, `5Gi` | at least `7d` with object storage or larger persistent volumes | filesystem-backed Loki is acceptable for a demo, not the long-term end state |
 | Alertmanager | `24h`, `1Gi` | `120h+` with receiver and silence needs in mind | demo alert history can be short; production teams usually want longer operational context |
@@ -649,20 +654,27 @@ Why the EKS node group is sized this way:
 - `min=2` avoids a fragile single-node cluster and gives the control-plane addons, observability stack, and Dagster workloads room to spread
 - `desired=2` keeps the baseline cost stable while still supporting zone-aware scheduling and rolling updates
 - `max=3` provides limited burst headroom for upgrades, temporary rescheduling pressure, and demo load without turning this into an oversized cluster
-- `t3.medium` is a pragmatic floor for this repo because it can host the Dagster webserver, daemon, gRPC user code, and core system pods without immediately forcing scale-out
+- `t3.small` is the cheapest worker size I would use here while still keeping the cluster private, multi-node, and capable of hosting Dagster plus the shared platform services
 
 Why the RDS instance is sized this way:
 
 - Dagster metadata traffic is light in this exercise, so `db.t4g.micro` is enough for orchestration state, run history, and event logs
 - Multi-AZ is disabled in the demo because it is one of the clearest avoidable cost multipliers in a short-lived review environment
 - storage starts at `20 GiB` on `gp3` and can autoscale to `100 GiB`, which is a better demo default than overprovisioning fixed storage up front
-- backup retention, Performance Insights, Enhanced Monitoring, and CloudWatch log exports are enabled so the database still looks operationally serious even though the compute class is small
+- backup retention and CloudWatch log exports remain enabled because they keep the database operationally defensible without a large cost jump
+- Performance Insights and Enhanced Monitoring are disabled by default because they are useful but not essential for a short-lived review environment
 
 Production note:
 
 - for a longer-lived environment, I would flip `db_multi_az = true` immediately and revisit the instance class after observing real connection count, storage growth, and maintenance expectations
 
 This sizing is appropriate for a review environment while still showing the correct production direction: externalized metadata, multi-node cluster baseline, and room for controlled scale-out.
+
+### Network Telemetry
+
+- VPC Flow Logs stay enabled so the architecture still demonstrates a reasonable network-audit posture
+- retention is trimmed to `7` days because `365` days was unnecessary for a disposable demo environment
+- if the goal were absolute minimum cost, VPC Flow Logs are one of the first features I would disable entirely
 
 ### Autoscaling Direction
 

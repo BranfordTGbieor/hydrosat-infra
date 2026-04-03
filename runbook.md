@@ -58,7 +58,7 @@ Suggested demo test values:
 | `environment` | `dev` |
 | `aws_region` | `us-east-1` |
 | `cluster_endpoint_public_access_cidrs` | `["203.0.113.10/32"]` |
-| Dagster image | `docker.io/<your-user>/hydrosat-dagster:v0.1.0` |
+| Dagster image | `docker.io/<your-user>/hydrosat-data:v0.2.0` |
 | Data lake bucket | value returned by Terraform output `data_lake_bucket_name` |
 | Slack webhook secret name | `hydrosat/dev/alertmanager` |
 | RDS secret name | value returned by Terraform output `rds_master_secret_arn` |
@@ -69,8 +69,8 @@ Update [helm/dagster/values-gitops.yaml](/home/branford-t-gbieor/Desktop/gbieor/
 
 ```yaml
 image:
-  repository: docker.io/<your-user>/hydrosat-dagster
-  tag: v0.1.0
+  repository: docker.io/<your-user>/hydrosat-data
+  tag: v0.2.0
 
 database:
   host: <terraform-rds-address>
@@ -396,7 +396,7 @@ Failure signs:
 Sample command from Terraform output:
 
 ```bash
-aws eks update-kubeconfig --region us-east-1 --name hydrosat-dev
+aws eks update-kubeconfig --region us-east-1 --name hydrosat-dev-eks
 kubectl config current-context
 kubectl get nodes -o wide
 ```

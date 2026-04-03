@@ -17,6 +17,8 @@ module "network" {
 
   name_prefix          = local.name
   enable_kms_hardening = var.enable_service_kms_hardening
+  enable_flow_logs     = var.enable_vpc_flow_logs
+  flow_log_retention   = var.vpc_flow_log_retention_in_days
   vpc_cidr             = var.vpc_cidr
   public_subnet_cidrs  = var.public_subnet_cidrs
   private_subnet_cidrs = var.private_subnet_cidrs
@@ -66,17 +68,19 @@ module "platform" {
 module "rds" {
   source = "./modules/rds"
 
-  name_prefix            = local.name
-  vpc_id                 = module.network.vpc_id
-  private_subnet_ids     = module.network.private_subnet_ids
-  allowed_security_group = module.eks.node_security_group_id
-  db_name                = var.db_name
-  db_username            = var.db_username
-  db_instance_class      = var.db_instance_class
-  engine_version         = var.db_engine_version
-  allocated_storage      = var.db_allocated_storage
-  max_allocated_storage  = var.db_max_allocated_storage
-  multi_az               = var.db_multi_az
-  skip_final_snapshot    = var.db_skip_final_snapshot
-  common_tags            = local.common_tags
+  name_prefix                 = local.name
+  vpc_id                      = module.network.vpc_id
+  private_subnet_ids          = module.network.private_subnet_ids
+  allowed_security_group      = module.eks.node_security_group_id
+  db_name                     = var.db_name
+  db_username                 = var.db_username
+  db_instance_class           = var.db_instance_class
+  engine_version              = var.db_engine_version
+  allocated_storage           = var.db_allocated_storage
+  max_allocated_storage       = var.db_max_allocated_storage
+  multi_az                    = var.db_multi_az
+  skip_final_snapshot         = var.db_skip_final_snapshot
+  enable_performance_insights = var.db_enable_performance_insights
+  enable_enhanced_monitoring  = var.db_enable_enhanced_monitoring
+  common_tags                 = local.common_tags
 }
