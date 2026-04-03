@@ -1,0 +1,58 @@
+name: Promote Dagster Image
+
+on:
+  repository_dispatch:
+    types:
+      - promote-dagster-image
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    name: Promote Image Tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update Dagster image values
+        env:
+          IMAGE_REPOSITORY: ${{ github.event.client_payload.image_repository }}
+          IMAGE_TAG: ${{ github.event.client_payload.image_tag }}
+        run: |
+          perl -0pi -e 's#repository: .*#repository: '"${IMAGE_REPOSITORY}"'#; s#tag: .*#tag: '"${IMAGE_TAG}"'#' helm/dagster/values-gitops.yaml
+
+      - name: Commit promoted image tag
+        env:
+          IMAGE_REPOSITORY: ${{ github.event.client_payload.image_repository }}
+          IMAGE_TAG: ${{ github.event.client_payload.image_tag }}
+          SOURCE_REPOSITORY: ${{ github.event.client_payload.source_repository }}
+          SOURCE_SHA: ${{ github.event.client_payload.source_sha }}
+        run: |
+          if git diff --quiet -- helm/dagster/values-gitops.yaml; then
+            echo "No image change to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add helm/dagster/values-gitops.yaml
+          git commit -m "Promote Dagster image ${IMAGE_TAG}"
+          git push
+
+      - name: Summarize promotion
+        env:
+          IMAGE_REPOSITORY: ${{ github.event.client_payload.image_repository }}
+          IMAGE_TAG: ${{ github.event.client_payload.image_tag }}
+          SOURCE_REPOSITORY: ${{ github.event.client_payload.source_repository }}
+          SOURCE_SHA: ${{ github.event.client_payload.source_sha }}
+        run: |
+          {
+            echo "## Dagster image promoted"
+            echo
+            echo "- Repository: ${IMAGE_REPOSITORY}"
+            echo "- Tag: ${IMAGE_TAG}"
+            echo "- Source repo: ${SOURCE_REPOSITORY}"
+            echo "- Source SHA: ${SOURCE_SHA}"
+          } >> "${GITHUB_STEP_SUMMARY}"
