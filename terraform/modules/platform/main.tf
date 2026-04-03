@@ -1,30 +1,3 @@
-data "aws_kms_alias" "ecr" {
-  count = var.enable_kms_hardening ? 1 : 0
-  name  = "alias/aws/ecr"
-}
-
-resource "aws_ecr_repository" "dagster" {
-  name                 = "${var.name_prefix}-dagster"
-  image_tag_mutability = "IMMUTABLE"
-
-  dynamic "encryption_configuration" {
-    for_each = var.enable_kms_hardening ? [1] : []
-    content {
-      encryption_type = "KMS"
-      kms_key         = data.aws_kms_alias.ecr[0].target_key_arn
-    }
-  }
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = merge(var.common_tags, {
-    Name      = "${var.name_prefix}-dagster"
-    Component = "platform"
-  })
-}
-
 resource "aws_iam_role" "external_secrets_service_account" {
   name = "${var.name_prefix}-external-secrets-irsa"
 
