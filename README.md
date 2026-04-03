@@ -256,6 +256,7 @@ Current logical layout:
 - `curated/tile_summary/...`
 
 Dagster accesses the bucket through an IRSA-bound service account role rather than static AWS credentials.
+The paired `hydrosat-data` repo now uses Python for `raw` ingestion and dbt-backed DuckDB transforms for the `staging` and `curated` layers before exporting those results back into the lake layout.
 
 ### Secret Rotation Lifecycle
 
