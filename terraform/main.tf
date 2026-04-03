@@ -54,6 +54,8 @@ module "platform" {
   oidc_provider_url                     = module.eks.oidc_provider_url
   external_secrets_namespace            = var.external_secrets_namespace
   external_secrets_service_account_name = var.external_secrets_service_account_name
+  dagster_namespace                     = var.dagster_namespace
+  dagster_service_account_name          = var.dagster_service_account_name
   external_secrets_secret_arns = compact([
     module.rds.master_user_secret_arn,
     var.alertmanager_notifier_secret_arn,

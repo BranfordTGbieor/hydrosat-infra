@@ -26,6 +26,14 @@ variable "external_secrets_secret_arns" {
   type = list(string)
 }
 
+variable "dagster_namespace" {
+  type = string
+}
+
+variable "dagster_service_account_name" {
+  type = string
+}
+
 variable "common_tags" {
   type = map(string)
 }

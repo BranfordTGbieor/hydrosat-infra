@@ -38,6 +38,10 @@ spec:
                   key: {{ .Values.database.secretKeys.url }}
             - name: ALERTMANAGER_URL
               value: {{ .Values.alerting.alertmanagerUrl | quote }}
+            - name: HYDROSAT_DATA_LAKE_BUCKET
+              value: {{ .Values.dataLake.bucket | quote }}
+            - name: HYDROSAT_DATA_LAKE_PREFIX
+              value: {{ .Values.dataLake.prefix | quote }}
           resources:
 {{ toYaml .Values.dagster.daemon.resources | indent 12 }}
           volumeMounts:

@@ -1,6 +1,14 @@
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: REPLACE_WITH_DAGSTER_DATA_ACCESS_ROLE_ARN
+
 image:
   repository: docker.io/gbieor/hydrosat-data
   tag: v0.1.0
+
+dataLake:
+  bucket: REPLACE_WITH_DATA_LAKE_BUCKET
+  prefix: hydrosat
 
 alerting:
   alertmanagerUrl: http://hydrosat-monitoring-alertmanager.monitoring.svc.cluster.local:9093/api/v2/alerts

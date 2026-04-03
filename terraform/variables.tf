@@ -122,6 +122,12 @@ variable "external_secrets_service_account_name" {
   default     = "hydrosat-external-secrets"
 }
 
+variable "dagster_service_account_name" {
+  description = "Service account name used by Dagster workloads."
+  type        = string
+  default     = "hydrosat-dagster"
+}
+
 variable "alertmanager_notifier_secret_arn" {
   description = "Optional AWS Secrets Manager ARN containing Alertmanager notifier settings."
   type        = string

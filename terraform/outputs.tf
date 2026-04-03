@@ -13,6 +13,21 @@ output "external_secrets_service_account_role_arn" {
   value       = module.platform.external_secrets_service_account_role_arn
 }
 
+output "dagster_service_account_role_arn" {
+  description = "IAM role ARN to annotate on the Dagster service account for data lake access."
+  value       = module.platform.dagster_service_account_role_arn
+}
+
+output "data_lake_bucket_name" {
+  description = "S3 bucket name backing the raw, staging, and curated data lake layers."
+  value       = module.platform.data_lake_bucket_name
+}
+
+output "data_lake_bucket_arn" {
+  description = "S3 bucket ARN backing the raw, staging, and curated data lake layers."
+  value       = module.platform.data_lake_bucket_arn
+}
+
 output "rds_address" {
   description = "RDS endpoint hostname for Dagster metadata storage."
   value       = module.rds.address

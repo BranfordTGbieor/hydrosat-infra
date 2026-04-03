@@ -61,6 +61,7 @@ This repo is the infrastructure half of a split-repo model:
 | Runtime Packaging | Helm | Keeps deploy shape separate from Dagster application source |
 | Delivery | Argo CD | GitOps as the steady-state deployment path |
 | Secrets | AWS Secrets Manager + External Secrets | Keeps credentials out of Git and Helm values |
+| Data Lake | S3-backed raw, staging, and curated layers | Supports the layered Dagster sample pipeline and future dbt work |
 | Observability | Prometheus, Alertmanager, Grafana, Loki, Alloy | Covers metrics, logs, dashboards, and alert routing in one stack |
 | CI/CD | GitHub Actions | Separate infra validation and governed Terraform delivery |
 
@@ -92,6 +93,7 @@ flowchart TD
 
   subgraph AWS
     S3[S3 Terraform State]
+    Lake[(S3 Data Lake)]
     DDB[DynamoDB Locks]
     RDS[(RDS PostgreSQL)]
     VPC[VPC]
@@ -107,6 +109,7 @@ flowchart TD
   Terraform --> VPC
   Terraform --> EKS
   Terraform --> RDS
+  Terraform --> Lake
 
   EKS --> Web[Dagster Webserver]
   EKS --> Daemon[Dagster Daemon]
@@ -123,6 +126,7 @@ flowchart TD
   Daemon --> UserCode
   Web --> RDS
   Daemon --> RDS
+  UserCode --> Lake
   Daemon -->|run failure alert| AM
   Prom --> AM
   Grafana --> Prom
@@ -240,6 +244,18 @@ This is materially better than:
 - embedding secrets in Helm values
 - manually creating Kubernetes secrets with `kubectl`
 - committing notifier configuration that contains credentials
+
+### Data Lake Storage
+
+The platform now provisions an S3-backed data lake bucket for the Dagster sample pipeline.
+
+Current logical layout:
+
+- `raw/satellite_observations/...`
+- `staging/satellite_observations/...`
+- `curated/tile_summary/...`
+
+Dagster accesses the bucket through an IRSA-bound service account role rather than static AWS credentials.
 
 ### Secret Rotation Lifecycle
 

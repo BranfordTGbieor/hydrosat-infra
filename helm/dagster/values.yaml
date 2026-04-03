@@ -8,6 +8,10 @@ serviceAccount:
   name: hydrosat-dagster
   annotations: {}
 
+dataLake:
+  bucket: ""
+  prefix: hydrosat
+
 alerting:
   alertmanagerUrl: ""
 

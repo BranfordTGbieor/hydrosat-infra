@@ -7,6 +7,7 @@ Use this document when you want to prove that:
 - Terraform configuration is valid
 - AWS infrastructure provisions correctly
 - the EKS cluster is reachable
+- the S3-backed data lake bucket and Dagster IRSA role are provisioned correctly
 - Argo CD can reconcile the platform
 - External Secrets can sync runtime secrets
 - Dagster can start against RDS
@@ -28,13 +29,14 @@ Run these sections in order:
 3. Platform Terraform validation
 4. Terraform plan and apply
 5. Cluster access validation
-6. GitOps and Argo CD validation
-7. External Secrets validation
-8. Dagster runtime validation
-9. Monitoring and logging validation
-10. Alerting validation
-11. Negative-path validation
-12. Destroy and cleanup validation
+6. Data lake and IRSA validation
+7. GitOps and Argo CD validation
+8. External Secrets validation
+9. Dagster runtime validation
+10. Monitoring and logging validation
+11. Alerting validation
+12. Negative-path validation
+13. Destroy and cleanup validation
 
 ## 2. Test Fixtures and Placeholder Values
 
@@ -56,6 +58,7 @@ Suggested demo test values:
 | `aws_region` | `us-east-1` |
 | `cluster_endpoint_public_access_cidrs` | `["203.0.113.10/32"]` |
 | Dagster image | `docker.io/<your-user>/hydrosat-dagster:v0.1.0` |
+| Data lake bucket | value returned by Terraform output `data_lake_bucket_name` |
 | Slack webhook secret name | `hydrosat/dev/alertmanager` |
 | RDS secret name | value returned by Terraform output `rds_master_secret_arn` |
 
@@ -268,6 +271,8 @@ Expected success:
 - outputs include:
   - `cluster_name`
   - `aws_region`
+  - `data_lake_bucket_name`
+  - `dagster_service_account_role_arn`
   - `rds_address`
   - `rds_master_secret_arn`
   - `kubectl_config_command`
@@ -319,7 +324,48 @@ Failure signs:
 - namespace not found
 - Argo CD app not yet synced
 
-## 7. GitOps and Argo CD Validation
+## 7. Data Lake and IRSA Validation
+
+### 7.1 Component: S3 Data Lake Bucket
+
+Commands:
+
+```bash
+terraform -chdir=terraform output data_lake_bucket_name
+terraform -chdir=terraform output data_lake_bucket_arn
+aws s3api head-bucket --bucket "$(terraform -chdir=terraform output -raw data_lake_bucket_name)"
+```
+
+Expected success:
+
+- Terraform outputs a bucket name and ARN
+- `head-bucket` exits successfully
+
+Failure signs:
+
+- bucket missing
+- access denied due to wrong AWS credentials or wrong account
+
+### 7.2 Component: Dagster IRSA Role
+
+Commands:
+
+```bash
+terraform -chdir=terraform output dagster_service_account_role_arn
+kubectl get sa hydrosat-dagster -n dagster -o yaml
+```
+
+Expected success:
+
+- Terraform outputs a valid IAM role ARN
+- the Dagster service account annotation includes `eks.amazonaws.com/role-arn`
+
+Failure signs:
+
+- role output missing
+- service account annotation absent or still placeholder-valued
+
+## 8. GitOps and Argo CD Validation
 
 ### 7.1 Component: Argo CD Bootstrap
 
@@ -370,7 +416,7 @@ Failure signs:
 - Helm render failure inside Argo CD
 - unhealthy child apps due to invalid values or unavailable image
 
-## 8. External Secrets Validation
+## 9. External Secrets Validation
 
 ### 8.1 Component: AWS Secrets Manager Inputs
 
@@ -448,9 +494,9 @@ Failure signs:
 - `AccessDeniedException`
 - target secret absent or empty
 
-## 9. Dagster Runtime Validation
+## 10. Dagster Runtime Validation
 
-### 9.1 Component: Helm-Managed Dagster Workloads
+### 10.1 Component: Helm-Managed Dagster Workloads
 
 Commands:
 
@@ -473,7 +519,7 @@ Failure signs:
 - migration job crash loop
 - `CreateContainerConfigError` due to missing DB secret or Alertmanager URL
 
-### 9.2 Component: Dagster Web UI Reachability
+### 10.2 Component: Dagster Web UI Reachability
 
 Commands:
 
@@ -500,7 +546,7 @@ Failure signs:
 - webserver pods not Ready
 - RDS connectivity errors in logs
 
-### 9.3 Component: RDS Connectivity from Dagster
+### 10.3 Component: RDS Connectivity from Dagster
 
 Commands:
 
@@ -521,7 +567,27 @@ Failure signs:
 - `could not connect to server`
 - `relation does not exist`
 
-## 10. Monitoring and Logging Validation
+### 10.4 Component: Data Lake Environment Wiring
+
+Commands:
+
+```bash
+kubectl get deploy hydrosat-dagster-user-code -n dagster -o yaml | rg "HYDROSAT_DATA_LAKE_(BUCKET|PREFIX)"
+kubectl get sa hydrosat-dagster -n dagster -o yaml | rg "eks.amazonaws.com/role-arn"
+```
+
+Expected success:
+
+- the user-code deployment includes `HYDROSAT_DATA_LAKE_BUCKET`
+- the user-code deployment includes `HYDROSAT_DATA_LAKE_PREFIX`
+- the Dagster service account includes the IRSA role annotation
+
+Failure signs:
+
+- missing lake env vars
+- missing service account role annotation
+
+## 11. Monitoring and Logging Validation
 
 ### 10.1 Component: Monitoring Stack Pods
 
@@ -604,7 +670,7 @@ Failure signs:
 - remote write or push errors
 - DNS or service-discovery failures
 
-## 11. Alerting Validation
+## 12. Alerting Validation
 
 ### 11.1 Component: Alertmanager API Reachability
 
@@ -698,7 +764,7 @@ kubectl scale deploy/hydrosat-dagster-user-code -n dagster --replicas=1
 kubectl rollout status deploy/hydrosat-dagster-user-code -n dagster
 ```
 
-## 12. Negative-Path Validation
+## 13. Negative-Path Validation
 
 ### 12.1 Component: Secret Sync Failure Detection
 
@@ -776,7 +842,7 @@ Rollback:
 - restore the correct image tag
 - sync Argo CD again
 
-## 13. Destroy and Cleanup Validation
+## 14. Destroy and Cleanup Validation
 
 ### 13.1 Component: Terraform Destroy
 
@@ -817,12 +883,13 @@ Failure signs:
 - bucket not empty
 - state backend still in use
 
-## 14. Completion Criteria
+## 15. Completion Criteria
 
 You can treat infra validation as complete when all of the following are true:
 
 - Terraform bootstrap and platform stacks both validate and apply cleanly
 - EKS cluster is reachable
+- the S3 data lake bucket exists and Dagster IRSA is configured
 - Argo CD apps are `Synced` and `Healthy`
 - External Secrets syncs both Dagster DB and Alertmanager config secrets
 - Dagster deployments are healthy
@@ -830,4 +897,3 @@ You can treat infra validation as complete when all of the following are true:
 - Grafana, Prometheus, Alertmanager, Loki, and Alloy are running
 - Alertmanager accepts manual test alerts
 - at least one negative-path test produces a clear, diagnosable failure
-
