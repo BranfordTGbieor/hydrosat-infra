@@ -334,7 +334,7 @@ aws eks update-kubeconfig \
 
 The application image is expected to be built and published from `hydrosat-data`.
 
-This infra repo consumes an explicit image repository and tag through the Helm chart. In the intended split-repo flow, `hydrosat-data` publishes that image to Docker Hub and this repo updates the deployed tag through GitOps-managed values.
+This infra repo consumes an explicit image repository and tag through the Helm chart. In the implemented split-repo flow, `hydrosat-data` publishes application images to Docker Hub and version-tag releases trigger this repo to update the deployed image tag through GitOps-managed values.
 
 ### 5. Prepare Secrets Manager Inputs
 
@@ -495,7 +495,7 @@ The split-repo model is intended to mirror the cleaner long-term operating model
 
 - application changes build and publish a Dagster image from `hydrosat-data`
 - infrastructure changes own Helm values, Argo CD application state, and environment promotion in `hydrosat-infra`
-- environment promotion updates the image tag consumed here after an application release is reviewed
+- version-tagged application releases automatically update the image tag consumed here through a bot commit in `hydrosat-infra`
 
 ## Security
 
