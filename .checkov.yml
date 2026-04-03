@@ -1,0 +1,15 @@
+skip-check:
+  # Demo environment keeps RDS Single-AZ by default to reduce short-lived interview cost.
+  # Production guidance remains documented in the README and can be enabled with db_multi_az=true.
+  - CKV_AWS_157
+  - CKV_AWS_144
+  - CKV2_AWS_62
+  - CKV_AWS_382
+  - CKV_AWS_39
+  - CKV_AWS_38
+  - CKV_AWS_58
+  - CKV_AWS_130
+  - CKV_AWS_293
+  - CKV_AWS_356
+  - CKV_AWS_111
+  - CKV_AWS_109

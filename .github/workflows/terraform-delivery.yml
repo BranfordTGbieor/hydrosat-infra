@@ -1,0 +1,175 @@
+name: Terraform Delivery
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-delivery.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  resolve-context:
+    name: Resolve Environment Context
+    runs-on: ubuntu-latest
+    outputs:
+      environment_name: ${{ steps.resolve.outputs.environment_name }}
+      git_ref_tag: ${{ steps.resolve.outputs.git_ref_tag }}
+      delivery_enabled: ${{ steps.resolve.outputs.delivery_enabled }}
+    steps:
+      - name: Resolve branch-to-environment mapping
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
+          ROLE_ARN: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE }}
+        run: |
+          branch="${BASE_REF:-$REF_NAME}"
+          case "${branch}" in
+            main|master)
+              environment_name="prod"
+              ;;
+            qa)
+              environment_name="qa"
+              ;;
+            develop|dev)
+              environment_name="dev"
+              ;;
+            *)
+              environment_name="dev"
+              ;;
+          esac
+
+          if [ -n "${ROLE_ARN}" ] && [ -n "${TF_STATE_BUCKET}" ] && [ -n "${TF_LOCK_TABLE}" ]; then
+            delivery_enabled="true"
+          else
+            delivery_enabled="false"
+          fi
+
+          echo "environment_name=${environment_name}" >> "${GITHUB_OUTPUT}"
+          echo "git_ref_tag=${REF_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "delivery_enabled=${delivery_enabled}" >> "${GITHUB_OUTPUT}"
+
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: resolve-context
+    if: needs.resolve-context.outputs.delivery_enabled == 'true'
+    env:
+      TF_IN_AUTOMATION: "true"
+      TARGET_ENVIRONMENT: ${{ needs.resolve-context.outputs.environment_name }}
+      GIT_REF_TAG: ${{ needs.resolve-context.outputs.git_ref_tag }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Write CI tfvars
+        working-directory: terraform
+        run: |
+          cat > ci.auto.tfvars <<EOF
+          environment = "${TARGET_ENVIRONMENT}"
+          extra_tags = {
+            DeploymentSource = "github-actions"
+            GitRef           = "${GIT_REF_TAG}"
+          }
+          EOF
+
+      - name: Write backend config
+        working-directory: terraform
+        run: |
+          cat > backend.ci.hcl <<EOF
+          bucket         = "${TF_STATE_BUCKET}"
+          dynamodb_table = "${TF_LOCK_TABLE}"
+          key            = "${TARGET_ENVIRONMENT}/platform.tfstate"
+          region         = "${AWS_REGION}"
+          encrypt        = true
+          EOF
+
+      - name: Terraform init
+        working-directory: terraform
+        run: terraform init -backend-config=backend.ci.hcl
+
+      - name: Terraform plan
+        working-directory: terraform
+        run: terraform plan -out=tfplan -input=false
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ needs.resolve-context.outputs.environment_name }}
+          path: |
+            terraform/tfplan
+            terraform/ci.auto.tfvars
+            terraform/backend.ci.hcl
+
+  plan-skipped:
+    name: Terraform Plan Skipped
+    runs-on: ubuntu-latest
+    needs: resolve-context
+    if: needs.resolve-context.outputs.delivery_enabled != 'true'
+    steps:
+      - name: Explain skip
+        run: |
+          echo "Terraform delivery is not configured."
+          echo "Set repository or environment variables AWS_TERRAFORM_ROLE_ARN, TF_STATE_BUCKET, and TF_LOCK_TABLE to enable CI-managed plans/applies."
+
+  apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-context
+      - plan
+    if: github.event_name == 'workflow_dispatch'
+    environment: ${{ needs.resolve-context.outputs.environment_name }}
+    env:
+      TF_IN_AUTOMATION: "true"
+      TARGET_ENVIRONMENT: ${{ needs.resolve-context.outputs.environment_name }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download reviewed plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan-${{ needs.resolve-context.outputs.environment_name }}
+          path: terraform
+
+      - name: Terraform init
+        working-directory: terraform
+        run: terraform init -backend-config=backend.ci.hcl
+
+      - name: Terraform apply
+        working-directory: terraform
+        run: terraform apply -input=false tfplan

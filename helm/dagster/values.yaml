@@ -1,0 +1,108 @@
+image:
+  repository: REPLACE_WITH_ECR_REPOSITORY
+  tag: latest
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: hydrosat-dagster
+  annotations: {}
+
+alerting:
+  alertmanagerUrl: ""
+
+dagster:
+  webserverPort: 3000
+  grpcPort: 4000
+  home: /opt/dagster/dagster_home
+  topologySpread:
+    enabled: true
+    maxSkew: 1
+    whenUnsatisfiable: ScheduleAnyway
+    topologyKey: topology.kubernetes.io/zone
+
+  migrate:
+    backoffLimit: 3
+    ttlSecondsAfterFinished: 300
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 250m
+        memory: 512Mi
+
+  podSecurityContext:
+    fsGroup: 10001
+
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+
+  webserver:
+    replicaCount: 1
+    serviceType: LoadBalancer
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 0
+        maxSurge: 1
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+  daemon:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+  userCode:
+    replicaCount: 1
+    strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 0
+        maxSurge: 1
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+postgresql:
+database:
+  host: ""
+  port: 5432
+  name: dagster
+  username: dagster
+  secretName: hydrosat-dagster-db
+  createSecret: false
+  password: ""
+  secretKeys:
+    username: username
+    password: password
+    url: url

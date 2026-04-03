@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hydrosat-dagster.fullname" . }}-daemon
+spec:
+  replicas: {{ .Values.dagster.daemon.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: daemon
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: daemon
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      securityContext:
+{{ toYaml .Values.dagster.podSecurityContext | indent 8 }}
+      serviceAccountName: {{ include "hydrosat-dagster.serviceAccountName" . }}
+      containers:
+        - name: daemon
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+{{ toYaml .Values.dagster.containerSecurityContext | indent 12 }}
+          command:
+            - dagster-daemon
+            - run
+            - -w
+            - /opt/dagster/app/workspace.yaml
+          env:
+            - name: DAGSTER_HOME
+              value: {{ .Values.dagster.home | quote }}
+            - name: DAGSTER_PG_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hydrosat-dagster.databaseSecretName" . }}
+                  key: {{ .Values.database.secretKeys.url }}
+            - name: ALERTMANAGER_URL
+              value: {{ .Values.alerting.alertmanagerUrl | quote }}
+          resources:
+{{ toYaml .Values.dagster.daemon.resources | indent 12 }}
+          volumeMounts:
+            - name: dagster-config
+              mountPath: {{ .Values.dagster.home }}
+            - name: workspace
+              mountPath: /opt/dagster/app/workspace.yaml
+              subPath: workspace.yaml
+      volumes:
+        - name: dagster-config
+          configMap:
+            name: {{ include "hydrosat-dagster.fullname" . }}-config
+            items:
+              - key: dagster.yaml
+                path: dagster.yaml
+        - name: workspace
+          configMap:
+            name: {{ include "hydrosat-dagster.fullname" . }}-config
+            items:
+              - key: workspace.yaml
+                path: workspace.yaml

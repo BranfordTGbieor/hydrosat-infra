@@ -1,0 +1,12 @@
+aws_region          = "us-east-1"
+project_name        = "hydrosat"
+environment         = "dev"
+public_subnet_azs   = ["us-east-1a", "us-east-1b"]
+private_subnet_azs  = ["us-east-1a", "us-east-1b"]
+cluster_endpoint_private_access = true
+cluster_endpoint_public_access = true
+cluster_endpoint_public_access_cidrs = ["203.0.113.10/32"]
+enable_service_kms_hardening = false
+db_instance_class   = "db.t4g.micro"
+db_engine_version   = "16"
+db_multi_az         = false

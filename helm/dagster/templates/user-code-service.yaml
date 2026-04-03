@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hydrosat-dagster.fullname" . }}-user-code
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: user-code
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: grpc
+      port: {{ .Values.dagster.grpcPort }}
+      targetPort: grpc
+

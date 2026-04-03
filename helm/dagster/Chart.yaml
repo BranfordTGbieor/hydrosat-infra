@@ -1,0 +1,7 @@
+apiVersion: v2
+name: hydrosat-dagster
+description: Minimal Dagster platform chart for the Hydrosat take-home.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+

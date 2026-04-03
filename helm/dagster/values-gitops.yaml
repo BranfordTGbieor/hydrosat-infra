@@ -1,0 +1,14 @@
+image:
+  repository: REPLACE_WITH_ECR_REPOSITORY
+  tag: latest
+
+alerting:
+  alertmanagerUrl: http://hydrosat-monitoring-alertmanager.monitoring.svc.cluster.local:9093/api/v2/alerts
+
+database:
+  host: REPLACE_WITH_RDS_ADDRESS
+  port: 5432
+  name: dagster
+  username: dagster
+  secretName: hydrosat-dagster-db
+  createSecret: false
