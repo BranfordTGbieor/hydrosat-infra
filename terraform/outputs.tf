@@ -8,8 +8,13 @@ output "aws_region" {
   value       = var.aws_region
 }
 
+output "container_repository_url" {
+  description = "Optional platform-managed container repository URL."
+  value       = module.platform.ecr_repository_url
+}
+
 output "ecr_repository_url" {
-  description = "ECR repository URL for the Dagster image."
+  description = "Legacy output name for the optional platform-managed ECR repository URL."
   value       = module.platform.ecr_repository_url
 }
 

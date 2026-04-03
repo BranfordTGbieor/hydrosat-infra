@@ -1,5 +1,5 @@
 image:
-  repository: REPLACE_WITH_ECR_REPOSITORY
+  repository: REPLACE_WITH_CONTAINER_IMAGE_REPOSITORY
   tag: latest
   pullPolicy: IfNotPresent
 
