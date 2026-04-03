@@ -25,18 +25,20 @@ This runbook assumes:
 Run these sections in order:
 
 1. Local static validation
-2. Bootstrap backend validation
-3. Platform Terraform validation
-4. Terraform plan and apply
-5. Cluster access validation
-6. Data lake and IRSA validation
-7. GitOps and Argo CD validation
-8. External Secrets validation
-9. Dagster runtime validation
-10. Monitoring and logging validation
-11. Alerting validation
-12. Negative-path validation
-13. Destroy and cleanup validation
+2. Placeholder replacement validation
+3. GitHub Environment protection validation
+4. Bootstrap backend validation
+5. Platform Terraform validation
+6. Terraform plan and apply
+7. Cluster access validation
+8. Data lake and IRSA validation
+9. GitOps and Argo CD validation
+10. External Secrets validation
+11. Dagster runtime validation
+12. Monitoring and logging validation
+13. Alerting validation
+14. Negative-path validation
+15. Destroy and cleanup validation
 
 ## 2. Test Fixtures and Placeholder Values
 
@@ -83,9 +85,116 @@ spec:
     repoURL: git@github.com:BranfordTGbieor/hydrosat-infra.git
 ```
 
-## 3. Local Static Validation
+## 3. Placeholder Replacement Validation
 
-### 3.1 Component: Repo Hygiene
+### 3.1 Component: Remaining Placeholder Inventory
+
+Commands:
+
+```bash
+rg -n "REPLACE_WITH" .
+```
+
+Expected success:
+
+- the output only shows files you intentionally have not populated yet for the current demo environment
+- you understand each remaining placeholder before attempting a real apply or Argo CD sync
+
+Failure signs:
+
+- placeholder values remain in files that will be used immediately for the live demo
+- the same runtime value must be replaced in multiple places and has not been reconciled
+
+### 3.2 Component: Live Demo Replacement Surface
+
+Critical files to check:
+
+- `helm/dagster/values-gitops.yaml`
+- `gitops/argocd/bootstrap/root-application.yaml`
+- `gitops/argocd/apps/project.yaml`
+- `gitops/argocd/apps/hydrosat-dagster.yaml`
+- `gitops/argocd/apps/external-secrets-operator.yaml`
+- `gitops/argocd/apps/external-secrets-resources.yaml`
+- `gitops/argocd/apps/monitoring-kube-prometheus-stack.yaml`
+- `gitops/argocd/apps/monitoring-loki.yaml`
+- `gitops/argocd/apps/monitoring-alloy.yaml`
+- `gitops/external-secrets/cluster-secret-store.yaml`
+- `gitops/external-secrets/dagster-db-external-secret.yaml`
+- `gitops/external-secrets/alertmanager-config-external-secret.yaml`
+- `gitops/argocd/values/external-secrets-values.yaml`
+- `gitops/argocd/values/kube-prometheus-stack-values.yaml`
+
+Expected success:
+
+- Git repository URLs point at the real `hydrosat-infra` repo
+- RDS secret ARN, Alertmanager notifier secret ARN, AWS region, bucket, IRSA role ARN, and RDS host are all populated
+- Grafana admin password placeholder is removed for the demo environment
+
+Failure signs:
+
+- Argo CD bootstrap points at the wrong repo
+- External Secrets references stale or fake ARNs
+- Dagster values still reference placeholder bucket, host, or role values
+
+## 4. GitHub Environment Protection Validation
+
+### 4.1 Component: Environment Inventory
+
+Manual checks in GitHub:
+
+- repository `Settings`
+- `Environments`
+
+Expected success:
+
+- `dev`, `qa`, and `prod` environments exist
+- environment names match the branch-to-environment mapping in `terraform-delivery.yml`
+
+Failure signs:
+
+- missing environments
+- mismatched naming such as `production` instead of `prod`
+
+### 4.2 Component: Protection Rules
+
+Manual checks in GitHub:
+
+- required reviewers for `qa` and `prod`
+- optional reviewer gate for `dev`
+- wait timer only if your team explicitly wants it
+
+Expected success:
+
+- `Terraform Apply` requires environment approval before execution
+- reviewer expectations differ sensibly by environment criticality
+
+Failure signs:
+
+- `workflow_dispatch` can apply to `prod` without reviewer approval
+- reviewers are configured on the wrong environment
+
+### 4.3 Component: Environment Variables
+
+Manual checks in GitHub:
+
+- `AWS_TERRAFORM_ROLE_ARN`
+- `TF_STATE_BUCKET`
+- `TF_LOCK_TABLE`
+- `AWS_REGION`
+
+Expected success:
+
+- the variables exist at repository or environment scope
+- higher environments can override lower-environment values safely
+
+Failure signs:
+
+- `Terraform Plan Skipped` runs because delivery variables are absent
+- apply targets the wrong region, bucket, or IAM role
+
+## 5. Local Static Validation
+
+### 5.1 Component: Repo Hygiene
 
 Commands:
 
@@ -104,7 +213,7 @@ Failure signs:
 - unexpected deleted or modified tracked files
 - missing core directories
 
-### 3.2 Component: Terraform Formatting and Validation
+### 5.2 Component: Terraform Formatting and Validation
 
 Commands:
 
@@ -128,7 +237,7 @@ Failure signs:
 - provider initialization errors
 - syntax errors in module blocks or outputs
 
-### 3.3 Component: Helm Packaging
+### 5.3 Component: Helm Packaging
 
 Commands:
 
@@ -154,7 +263,7 @@ Quick verification:
 rg "kind: (Deployment|Job|NetworkPolicy|PodDisruptionBudget)" /tmp/hydrosat-dagster-rendered.yaml
 ```
 
-### 3.4 Component: GitOps and Observability Chart Rendering
+### 5.4 Component: GitOps and Observability Chart Rendering
 
 Commands:
 
@@ -197,9 +306,9 @@ Failure signs:
 - bad values structure
 - version mismatch
 
-## 4. Bootstrap Backend Validation
+## 6. Bootstrap Backend Validation
 
-### 4.1 Component: Remote State Bootstrap Stack
+### 6.1 Component: Remote State Bootstrap Stack
 
 Files:
 
@@ -226,9 +335,9 @@ Failure signs:
 - insufficient AWS permissions
 - invalid region or provider authentication failure
 
-## 5. Platform Terraform Validation
+## 7. Platform Terraform Validation
 
-### 5.1 Component: Main Platform Stack
+### 7.1 Component: Main Platform Stack
 
 Files:
 
@@ -256,7 +365,7 @@ Failure signs:
 - undeclared vars such as stale `enable_alerting` or `alert_email_endpoint`
 - invalid CIDR or AZ configuration
 
-### 5.2 Component: Apply the Main Stack
+### 7.2 Component: Apply the Main Stack
 
 Commands:
 
@@ -283,9 +392,9 @@ Failure signs:
 - RDS subnet/security-group issues
 - IAM trust-policy or OIDC issues for External Secrets
 
-## 6. Cluster Access Validation
+## 8. Cluster Access Validation
 
-### 6.1 Component: EKS Access
+### 8.1 Component: EKS Access
 
 Sample command from Terraform output:
 
@@ -306,7 +415,7 @@ Failure signs:
 - public endpoint CIDR mismatch
 - missing IAM auth mapping
 
-### 6.2 Component: Core Namespaces
+### 8.2 Component: Core Namespaces
 
 Commands:
 
@@ -324,9 +433,9 @@ Failure signs:
 - namespace not found
 - Argo CD app not yet synced
 
-## 7. Data Lake and IRSA Validation
+## 9. Data Lake and IRSA Validation
 
-### 7.1 Component: S3 Data Lake Bucket
+### 9.1 Component: S3 Data Lake Bucket
 
 Commands:
 
@@ -346,7 +455,7 @@ Failure signs:
 - bucket missing
 - access denied due to wrong AWS credentials or wrong account
 
-### 7.2 Component: Dagster IRSA Role
+### 9.2 Component: Dagster IRSA Role
 
 Commands:
 
@@ -365,9 +474,9 @@ Failure signs:
 - role output missing
 - service account annotation absent or still placeholder-valued
 
-## 8. GitOps and Argo CD Validation
+## 10. GitOps and Argo CD Validation
 
-### 7.1 Component: Argo CD Bootstrap
+### 10.1 Component: Argo CD Bootstrap
 
 Commands:
 
@@ -394,7 +503,7 @@ Failure signs:
 - missing SSH credentials or repo access in Argo CD
 - application stuck in `Unknown` or `OutOfSync`
 
-### 7.2 Component: Argo CD Sync Health
+### 10.2 Component: Argo CD Sync Health
 
 Commands:
 
@@ -416,9 +525,9 @@ Failure signs:
 - Helm render failure inside Argo CD
 - unhealthy child apps due to invalid values or unavailable image
 
-## 9. External Secrets Validation
+## 11. External Secrets Validation
 
-### 8.1 Component: AWS Secrets Manager Inputs
+### 11.1 Component: AWS Secrets Manager Inputs
 
 Create or verify the alertmanager config secret value. Example payload:
 
@@ -452,7 +561,7 @@ Failure signs:
 - secret does not exist
 - malformed YAML string if manually escaped incorrectly
 
-### 8.2 Component: ClusterSecretStore
+### 11.2 Component: ClusterSecretStore
 
 Commands:
 
@@ -470,7 +579,7 @@ Failure signs:
 - auth errors against AWS
 - service account IRSA annotation missing
 
-### 8.3 Component: ExternalSecret Resources
+### 11.3 Component: ExternalSecret Resources
 
 Commands:
 
@@ -494,9 +603,9 @@ Failure signs:
 - `AccessDeniedException`
 - target secret absent or empty
 
-## 10. Dagster Runtime Validation
+## 12. Dagster Runtime Validation
 
-### 10.1 Component: Helm-Managed Dagster Workloads
+### 12.1 Component: Helm-Managed Dagster Workloads
 
 Commands:
 
@@ -519,7 +628,7 @@ Failure signs:
 - migration job crash loop
 - `CreateContainerConfigError` due to missing DB secret or Alertmanager URL
 
-### 10.2 Component: Dagster Web UI Reachability
+### 12.2 Component: Dagster Web UI Reachability
 
 Commands:
 
@@ -546,7 +655,7 @@ Failure signs:
 - webserver pods not Ready
 - RDS connectivity errors in logs
 
-### 10.3 Component: RDS Connectivity from Dagster
+### 12.3 Component: RDS Connectivity from Dagster
 
 Commands:
 
@@ -567,7 +676,7 @@ Failure signs:
 - `could not connect to server`
 - `relation does not exist`
 
-### 10.4 Component: Data Lake Environment Wiring
+### 12.4 Component: Data Lake Environment Wiring
 
 Commands:
 
@@ -587,9 +696,9 @@ Failure signs:
 - missing lake env vars
 - missing service account role annotation
 
-## 11. Monitoring and Logging Validation
+## 13. Monitoring and Logging Validation
 
-### 10.1 Component: Monitoring Stack Pods
+### 13.1 Component: Monitoring Stack Pods
 
 Commands:
 
@@ -607,7 +716,7 @@ Failure signs:
 - pending pods due to storage or scheduling issues
 - crash looping Grafana or Alertmanager pods
 
-### 10.2 Component: Grafana Reachability
+### 13.2 Component: Grafana Reachability
 
 Commands:
 
@@ -631,7 +740,7 @@ Failure signs:
 - service not found
 - Grafana pod not ready
 
-### 10.3 Component: Prometheus Rule Presence
+### 13.3 Component: Prometheus Rule Presence
 
 Commands:
 
@@ -651,7 +760,7 @@ Failure signs:
 
 - rules absent because chart rendering or Argo CD sync failed
 
-### 10.4 Component: Loki Log Availability
+### 13.4 Component: Loki Log Availability
 
 Commands:
 
@@ -670,9 +779,9 @@ Failure signs:
 - remote write or push errors
 - DNS or service-discovery failures
 
-## 12. Alerting Validation
+## 14. Alerting Validation
 
-### 11.1 Component: Alertmanager API Reachability
+### 14.1 Component: Alertmanager API Reachability
 
 Sample test payload:
 
@@ -739,7 +848,7 @@ Failure signs:
 - `503` due to Alertmanager not ready
 - no downstream delivery because receiver config secret is invalid
 
-### 11.2 Component: Prometheus-Driven Alert Path
+### 14.2 Component: Prometheus-Driven Alert Path
 
 Commands:
 
@@ -764,9 +873,9 @@ kubectl scale deploy/hydrosat-dagster-user-code -n dagster --replicas=1
 kubectl rollout status deploy/hydrosat-dagster-user-code -n dagster
 ```
 
-## 13. Negative-Path Validation
+## 15. Negative-Path Validation
 
-### 12.1 Component: Secret Sync Failure Detection
+### 15.1 Component: Secret Sync Failure Detection
 
 Induce a failure by referencing a nonexistent AWS secret in a temporary test ExternalSecret.
 
@@ -808,7 +917,7 @@ Failure signs:
 
 - no status updates at all, suggesting controller issues
 
-### 12.2 Component: Dagster Image Pull Failure Detection
+### 15.2 Component: Dagster Image Pull Failure Detection
 
 Induce a failure by setting a bogus image tag in [helm/dagster/values-gitops.yaml](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/helm/dagster/values-gitops.yaml), syncing Argo CD, and observing the resulting failure.
 
@@ -842,9 +951,9 @@ Rollback:
 - restore the correct image tag
 - sync Argo CD again
 
-## 14. Destroy and Cleanup Validation
+## 16. Destroy and Cleanup Validation
 
-### 13.1 Component: Terraform Destroy
+### 16.1 Component: Terraform Destroy
 
 Commands:
 
@@ -863,7 +972,7 @@ Failure signs:
 - security groups in use
 - lingering ENIs or finalizers
 
-### 13.2 Component: Bootstrap Destroy
+### 16.2 Component: Bootstrap Destroy
 
 Only do this after the main platform stack is gone and state has been migrated or no longer needed.
 
@@ -883,7 +992,7 @@ Failure signs:
 - bucket not empty
 - state backend still in use
 
-## 15. Completion Criteria
+## 17. Completion Criteria
 
 You can treat infra validation as complete when all of the following are true:
 

@@ -506,6 +506,37 @@ Tagging model:
 - `Environment` remains the canonical stable environment tag
 - `GitRef` can be added as secondary traceability metadata
 
+### GitHub Environment Protection
+
+For the intended CI-only apply model, create GitHub Environments named `dev`, `qa`, and `prod` in the `hydrosat-infra` repository and attach protection rules to them.
+
+Recommended baseline:
+
+- `dev`: optional reviewer gate, mainly used to exercise the workflow end to end
+- `qa`: at least one required reviewer before `Terraform Apply`
+- `prod`: at least one required reviewer, ideally two if the team is large enough
+
+Recommended environment-scoped variables:
+
+- `AWS_TERRAFORM_ROLE_ARN`
+- `TF_STATE_BUCKET`
+- `TF_LOCK_TABLE`
+- `AWS_REGION`
+
+Recommended environment-scoped secrets when needed later:
+
+- any future Terraform provider credentials that should not be repository-wide
+- any release or notification tokens that should differ between `dev`, `qa`, and `prod`
+
+Expected operator flow:
+
+1. push or open a PR on the environment-mapped branch
+2. let `Terraform Plan` run automatically
+3. review the uploaded plan artifact
+4. trigger `Terraform Delivery` manually when ready
+5. approve the environment gate in GitHub
+6. let `Terraform Apply` run with the reviewed plan artifact
+
 ### Release Ownership Model
 
 The split-repo model is intended to mirror the cleaner long-term operating model:
@@ -513,6 +544,50 @@ The split-repo model is intended to mirror the cleaner long-term operating model
 - application changes build and publish a Dagster image from `hydrosat-data`
 - infrastructure changes own Helm values, Argo CD application state, and environment promotion in `hydrosat-infra`
 - version-tagged application releases automatically update the image tag consumed here through a bot commit in `hydrosat-infra`
+
+## Live Demo Placeholder Inventory
+
+Before a real demo deployment, replace the remaining placeholder values in one pass so Argo CD, External Secrets, and the Dagster chart point at the live environment.
+
+Git repository placeholders:
+
+- `gitops/argocd/bootstrap/root-application.yaml`
+- `gitops/argocd/apps/project.yaml`
+- `gitops/argocd/apps/hydrosat-dagster.yaml`
+- `gitops/argocd/apps/external-secrets-operator.yaml`
+- `gitops/argocd/apps/external-secrets-resources.yaml`
+- `gitops/argocd/apps/monitoring-kube-prometheus-stack.yaml`
+- `gitops/argocd/apps/monitoring-loki.yaml`
+- `gitops/argocd/apps/monitoring-alloy.yaml`
+
+AWS and secret-integration placeholders:
+
+- `gitops/external-secrets/cluster-secret-store.yaml`
+- `gitops/external-secrets/dagster-db-external-secret.yaml`
+- `gitops/external-secrets/alertmanager-config-external-secret.yaml`
+- `gitops/argocd/values/external-secrets-values.yaml`
+
+Dagster runtime placeholders:
+
+- `helm/dagster/values-gitops.yaml`
+  - `REPLACE_WITH_DAGSTER_DATA_ACCESS_ROLE_ARN`
+  - `REPLACE_WITH_DATA_LAKE_BUCKET`
+  - `REPLACE_WITH_RDS_ADDRESS`
+
+Demo-only bootstrap placeholders:
+
+- `gitops/argocd/values/kube-prometheus-stack-values.yaml`
+  - `REPLACE_WITH_GRAFANA_ADMIN_PASSWORD`
+- `helm/dagster/values.yaml`
+  - `REPLACE_WITH_CONTAINER_IMAGE_REPOSITORY`
+
+Recommended replacement order:
+
+1. Terraform apply and capture outputs
+2. replace AWS-region, secret-ARN, and IRSA placeholders
+3. replace Dagster runtime values such as bucket, RDS host, and role ARN
+4. replace Git repository URLs for Argo CD bootstrap
+5. replace Grafana admin password and any remaining chart defaults
 
 ## Security
 
