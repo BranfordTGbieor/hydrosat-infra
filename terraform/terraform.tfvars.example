@@ -7,6 +7,7 @@ cluster_endpoint_private_access = true
 cluster_endpoint_public_access = true
 cluster_endpoint_public_access_cidrs = ["203.0.113.10/32"]
 enable_service_kms_hardening = false
+enable_ebs_csi_driver = true
 enable_vpc_flow_logs = true
 vpc_flow_log_retention_in_days = 7
 db_instance_class   = "db.t4g.micro"

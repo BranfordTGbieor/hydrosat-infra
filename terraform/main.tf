@@ -44,6 +44,7 @@ module "eks" {
   node_desired_size            = var.node_desired_size
   node_min_size                = var.node_min_size
   node_max_size                = var.node_max_size
+  enable_ebs_csi_driver        = var.enable_ebs_csi_driver
   common_tags                  = local.common_tags
 }
 

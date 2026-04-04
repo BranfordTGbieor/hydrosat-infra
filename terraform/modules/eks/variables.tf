@@ -53,3 +53,7 @@ variable "node_max_size" {
 variable "common_tags" {
   type = map(string)
 }
+
+variable "enable_ebs_csi_driver" {
+  type = bool
+}

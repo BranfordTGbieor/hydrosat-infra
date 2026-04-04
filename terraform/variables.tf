@@ -104,6 +104,12 @@ variable "node_max_size" {
   default     = 3
 }
 
+variable "enable_ebs_csi_driver" {
+  description = "Whether to install the AWS EBS CSI driver as an EKS add-on."
+  type        = bool
+  default     = true
+}
+
 variable "dagster_namespace" {
   description = "Kubernetes namespace used for the Dagster platform."
   type        = string
