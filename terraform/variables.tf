@@ -59,7 +59,7 @@ variable "private_subnet_azs" {
 variable "eks_cluster_version" {
   description = "Pinned EKS control plane version."
   type        = string
-  default     = "1.29"
+  default     = "1.31"
 }
 
 variable "cluster_endpoint_private_access" {
