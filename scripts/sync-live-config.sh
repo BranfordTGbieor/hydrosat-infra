@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TF_DIR="${ROOT_DIR}/terraform"
 
-INFRA_REPO_URL="${INFRA_REPO_URL:-git@github.com:BranfordTGbieor/hydrosat-infra.git}"
+INFRA_REPO_URL="${INFRA_REPO_URL:-https://github.com/BranfordTGbieor/hydrosat-infra.git}"
 ALERTMANAGER_SECRET_ARN="${ALERTMANAGER_SECRET_ARN:?Set ALERTMANAGER_SECRET_ARN to the AWS Secrets Manager ARN for Alertmanager Slack config.}"
 GRAFANA_ADMIN_SECRET_ARN="${GRAFANA_ADMIN_SECRET_ARN:?Set GRAFANA_ADMIN_SECRET_ARN to the AWS Secrets Manager ARN for Grafana admin credentials.}"
 
@@ -26,12 +26,12 @@ replace_all() {
   perl -0pi -e "s#\Q${old}\E#${new}#g" "$@"
 }
 
-perl -0pi -e "s#repoURL: .*#repoURL: ${INFRA_REPO_URL}#g" \
+perl -0pi -e 's#repoURL: .*#repoURL: '"${INFRA_REPO_URL}"'#g' \
   "${ROOT_DIR}/gitops/argocd/bootstrap/root-application.yaml" \
   "${ROOT_DIR}/gitops/argocd/apps/hydrosat-dagster.yaml" \
   "${ROOT_DIR}/gitops/argocd/apps/external-secrets-resources.yaml"
 
-perl -0pi -e "s#- (?:REPLACE_WITH_GIT_REPOSITORY_URL|git@github\\.com:BranfordTGbieor/hydrosat-infra\\.git)#- ${INFRA_REPO_URL}#g" \
+perl -0pi -e 's#- (?:REPLACE_WITH_GIT_REPOSITORY_URL|git@github\.com:BranfordTGbieor/hydrosat-infra\.git|https://github\.com/BranfordTGbieor/hydrosat-infra\.git)#- '"${INFRA_REPO_URL}"'#g' \
   "${ROOT_DIR}/gitops/argocd/apps/project.yaml" \
   "${ROOT_DIR}/gitops/argocd/apps/external-secrets-operator.yaml" \
   "${ROOT_DIR}/gitops/argocd/apps/monitoring-kube-prometheus-stack.yaml" \

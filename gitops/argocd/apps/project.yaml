@@ -8,7 +8,7 @@ metadata:
 spec:
   description: Hydrosat data platform applications managed by Argo CD in the demo cluster
   sourceRepos:
-    - git@github.com:BranfordTGbieor/hydrosat-infra.git
+    - https://github.com/BranfordTGbieor/hydrosat-infra.git
     - https://prometheus-community.github.io/helm-charts
     - https://grafana.github.io/helm-charts
     - https://charts.external-secrets.io

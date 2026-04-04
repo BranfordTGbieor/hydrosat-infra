@@ -15,7 +15,7 @@ spec:
         releaseName: hydrosat-alloy
         valueFiles:
           - $values/gitops/argocd/values/alloy-values.yaml
-    - repoURL: git@github.com:BranfordTGbieor/hydrosat-infra.git
+    - repoURL: https://github.com/BranfordTGbieor/hydrosat-infra.git
       targetRevision: HEAD
       ref: values
   destination:

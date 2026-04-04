@@ -1,20 +1,20 @@
 serviceAccount:
   annotations:
-    eks.amazonaws.com/role-arn: REPLACE_WITH_DAGSTER_DATA_ACCESS_ROLE_ARN
+    eks.amazonaws.com/role-arn: arn:aws:iam::564268553986:role/hydrosat-dev-dagster-irsa
 
 image:
   repository: docker.io/gbieor/hydrosat-data
   tag: v0.2.0
 
 dataLake:
-  bucket: REPLACE_WITH_DATA_LAKE_BUCKET
+  bucket: hydrosat-dev-data-lake
   prefix: hydrosat
 
 alerting:
   alertmanagerUrl: http://hydrosat-monitoring-alertmanager.monitoring.svc.cluster.local:9093/api/v2/alerts
 
 database:
-  host: REPLACE_WITH_RDS_ADDRESS
+  host: hydrosat-dev-dagster.cunysm608k0x.us-east-1.rds.amazonaws.com
   port: 5432
   name: dagster
   username: dagster

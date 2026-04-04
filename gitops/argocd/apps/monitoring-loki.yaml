@@ -15,7 +15,7 @@ spec:
         releaseName: hydrosat-loki
         valueFiles:
           - $values/gitops/argocd/values/loki-values.yaml
-    - repoURL: git@github.com:BranfordTGbieor/hydrosat-infra.git
+    - repoURL: https://github.com/BranfordTGbieor/hydrosat-infra.git
       targetRevision: HEAD
       ref: values
   destination:
