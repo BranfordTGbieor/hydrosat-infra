@@ -134,6 +134,12 @@ variable "alertmanager_notifier_secret_arn" {
   default     = ""
 }
 
+variable "grafana_admin_secret_arn" {
+  description = "Optional AWS Secrets Manager ARN containing Grafana admin credentials."
+  type        = string
+  default     = ""
+}
+
 variable "enable_service_kms_hardening" {
   description = "Whether to use AWS-managed KMS aliases for EKS secrets encryption and CloudWatch Logs."
   type        = bool
