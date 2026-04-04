@@ -20,6 +20,126 @@ This runbook assumes:
 - `kubectl`, `helm`, `terraform`, `aws`, `docker`, and `argocd` are installed
 - the separate `hydrosat-data` repo has already produced a Docker image tag you can reference
 
+## Fast Path After Terraform Apply
+
+Use this section if Terraform apply has already completed and you only want the remaining live-platform checks.
+
+Already completed earlier in the exercise:
+
+- local Terraform formatting and validation
+- Helm lint and chart rendering
+- AWS infrastructure provisioning
+- EKS cluster creation
+- managed node group creation
+
+Before continuing, make sure these tracked placeholders are replaced:
+
+- `gitops/external-secrets/alertmanager-config-external-secret.yaml`
+  - `REPLACE_WITH_ALERTMANAGER_NOTIFIER_SECRET_ARN`
+- `gitops/argocd/values/kube-prometheus-stack-values.yaml`
+  - `REPLACE_WITH_GRAFANA_ADMIN_PASSWORD`
+
+Then run the remaining validation flow in this order:
+
+1. Refresh kubeconfig and confirm node readiness
+
+```bash
+aws eks update-kubeconfig --region us-east-1 --name hydrosat-dev-eks
+kubectl get nodes -o wide
+kubectl get ns
+```
+
+2. Bootstrap Argo CD
+
+```bash
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply -f gitops/argocd/bootstrap/root-application.yaml
+kubectl get pods -n argocd
+kubectl get applications -n argocd
+```
+
+3. Validate Argo CD app health
+
+```bash
+kubectl get applications -n argocd
+kubectl describe application hydrosat-root -n argocd
+kubectl describe application hydrosat-dagster -n argocd
+```
+
+Expected result:
+
+- applications become `Synced` and `Healthy`
+- namespaces `argocd`, `dagster`, `monitoring`, and `external-secrets` exist
+
+4. Validate External Secrets
+
+```bash
+kubectl get clustersecretstore
+kubectl get externalsecret -A
+kubectl get secret hydrosat-dagster-db -n dagster
+kubectl get secret hydrosat-alertmanager-config -n monitoring
+```
+
+Expected result:
+
+- `hydrosat-aws-secretsmanager` is `Ready`
+- both `ExternalSecret` resources report `Ready`
+- the two target Kubernetes secrets exist
+
+5. Validate Dagster runtime
+
+```bash
+kubectl get pods -n dagster
+kubectl get svc -n dagster
+kubectl logs deployment/hydrosat-dagster-webserver -n dagster --tail=100
+kubectl logs deployment/hydrosat-dagster-daemon -n dagster --tail=100
+```
+
+Expected result:
+
+- webserver, daemon, and user-code pods are `Running`
+- no `CreateContainerConfigError`
+- logs do not show RDS connection failures
+
+6. Validate monitoring stack
+
+```bash
+kubectl get pods -n monitoring
+kubectl get prometheusrules -n monitoring
+kubectl get secret hydrosat-alertmanager-config -n monitoring -o yaml
+```
+
+Expected result:
+
+- Prometheus, Alertmanager, Grafana, Loki, and Alloy pods are `Running`
+- Dagster-specific Prometheus rules exist
+- Alertmanager config secret is present
+
+7. Validate manual alert ingestion
+
+```bash
+kubectl run curl-alert --rm -i --tty \
+  --restart=Never \
+  -n monitoring \
+  --image=curlimages/curl:8.7.1 -- \
+  curl -X POST http://hydrosat-monitoring-alertmanager.monitoring.svc.cluster.local:9093/api/v2/alerts \
+  -H 'Content-Type: application/json' \
+  -d '[{"labels":{"alertname":"ManualRunbookProbe","severity":"warning","service":"runbook"},"annotations":{"summary":"Manual runbook probe","description":"Verifies Alertmanager API reachability from the cluster"}}]'
+```
+
+Expected result:
+
+- request returns `200` or `202`
+- the alert appears in Alertmanager shortly after
+
+8. Optional negative-path checks
+
+- break the Dagster image tag in `helm/dagster/values-gitops.yaml` and resync to confirm Argo CD surfaces the failure
+- temporarily point an `ExternalSecret` at a bad ARN to confirm sync errors are visible
+
+If you only need the remaining live-environment validation, you can stop after this fast-path section and use the detailed sections below only when a step fails.
+
 ## 1. Validation Order
 
 Run these sections in order:
