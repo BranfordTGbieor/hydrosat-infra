@@ -26,6 +26,7 @@ singleBinary:
   replicas: 1
   persistence:
     enabled: true
+    storageClass: gp2
     size: 5Gi
   resources:
     requests:
