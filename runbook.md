@@ -1,38 +1,60 @@
-# Hydrosat Infrastructure Validation Runbook
+# Hydrosat Infra Bring-Up Runbook
 
-This runbook is a high-fidelity, end-to-end validation guide for the `hydrosat-infra` repository. It is intentionally redundant with the main README and optimized for stepwise system verification.
+Use this runbook after `terraform apply` when you want to get the platform up again quickly.
 
-Use this document when you want to prove that:
+This is intentionally shorter than the earlier validation-heavy version. It focuses on the repeatable path that actually matters:
 
-- Terraform configuration is valid
-- AWS infrastructure provisions correctly
-- the EKS cluster is reachable
-- the S3-backed data lake bucket and Dagster IRSA role are provisioned correctly
-- Argo CD can reconcile the platform
-- External Secrets can sync runtime secrets
-- Dagster can start against RDS
-- monitoring, logging, and alerting are functioning
+1. sync live values into GitOps
+2. bootstrap Argo CD
+3. verify External Secrets
+4. verify Dagster
+5. verify monitoring
+6. use the recovery steps only if a known failure reappears
 
 This runbook assumes:
 
 - repo root is `hydrosat-infra/`
-- AWS credentials are available locally or via an assumed role
-- `kubectl`, `helm`, `terraform`, `aws`, `docker`, and `argocd` are installed
-- the separate `hydrosat-data` repo has already produced a Docker image tag you can reference
+- Terraform apply has completed successfully
+- AWS CLI, `kubectl`, `terraform`, and `git` work locally
+- the `hydrosat-data` image tag already exists
 
-## Fast Path After Terraform Apply
+## 1. Required Inputs
 
-Use this section if Terraform apply has already completed and you only want the remaining live-platform checks.
+You need these values before starting:
 
-Already completed earlier in the exercise:
+- Terraform outputs:
+  - `aws_region`
+  - `cluster_name`
+  - `data_lake_bucket_name`
+  - `dagster_service_account_role_arn`
+  - `external_secrets_service_account_role_arn`
+  - `rds_address`
+  - `rds_master_secret_arn`
+- AWS Secrets Manager secrets:
+  - Alertmanager Slack secret ARN
+  - Grafana admin secret ARN
 
-- local Terraform formatting and validation
-- Helm lint and chart rendering
-- AWS infrastructure provisioning
-- EKS cluster creation
-- managed node group creation
+Recommended commands:
 
-Before continuing, make sure the AWS Secrets Manager inputs exist and then sync the live GitOps values:
+```bash
+terraform -chdir=terraform output
+
+aws secretsmanager describe-secret \
+  --region us-east-1 \
+  --secret-id hydrosat/dev/alertmanager \
+  --query ARN \
+  --output text
+
+aws secretsmanager describe-secret \
+  --region us-east-1 \
+  --secret-id hydrosat/dev/grafana \
+  --query ARN \
+  --output text
+```
+
+## 2. Sync Live GitOps Values
+
+Populate the GitOps manifests with the current environment values:
 
 ```bash
 export ALERTMANAGER_SECRET_ARN=arn:aws:secretsmanager:...
@@ -43,1094 +65,253 @@ git diff
 
 Expected result:
 
-- the current Terraform outputs are written into the GitOps manifests
-- the current Alertmanager and Grafana secret ARNs are written into the ExternalSecret resources
-- no `REPLACE_WITH` placeholders remain in live bootstrap files
+- current Terraform outputs are written into the GitOps manifests
+- current secret ARNs are written into the ExternalSecret resources
+- no live runtime placeholders remain in the bootstrap files
 
-Then run the remaining validation flow in this order:
+Commit and push the sync if it changed tracked files:
 
-1. Refresh kubeconfig and confirm node readiness
+```bash
+git add gitops helm/dagster/values-gitops.yaml scripts/sync-live-config.sh
+git commit -m "Sync live GitOps environment values"
+git push
+```
+
+## 3. Refresh Cluster Access
 
 ```bash
 aws eks update-kubeconfig --region us-east-1 --name hydrosat-dev-eks
+kubectl config current-context
 kubectl get nodes -o wide
 kubectl get ns
 ```
 
-2. Bootstrap Argo CD
+Expected result:
+
+- the EKS context is current
+- worker nodes are `Ready`
+
+If `kubectl` points at an old destroyed cluster endpoint, rerun `aws eks update-kubeconfig`.
+
+## 4. Bootstrap Argo CD
+
+Run from the `hydrosat-infra/` repo root:
 
 ```bash
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-git add gitops helm/dagster/values-gitops.yaml
-git commit -m "Sync live GitOps environment values"
-git push
+kubectl apply --server-side -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl wait --for=condition=Available deployment/argocd-server -n argocd --timeout=300s
+kubectl wait --for=condition=Available deployment/argocd-repo-server -n argocd --timeout=300s
+kubectl wait --for=condition=Available deployment/argocd-applicationset-controller -n argocd --timeout=300s
 kubectl apply -f gitops/argocd/bootstrap/root-application.yaml
 kubectl get pods -n argocd
 kubectl get applications -n argocd
 ```
 
-3. Validate Argo CD app health
+Expected result:
+
+- Argo CD pods are `Running`
+- `hydrosat-root` appears in `argocd`
+
+## 5. Baseline App Checks
 
 ```bash
 kubectl get applications -n argocd
-kubectl describe application hydrosat-root -n argocd
-kubectl describe application hydrosat-dagster -n argocd
+kubectl get externalsecret -A
+kubectl get secretstore,clustersecretstore -A
+kubectl get pods -A
 ```
 
-Expected result:
+Expected steady-state target:
 
-- applications become `Synced` and `Healthy`
-- namespaces `argocd`, `dagster`, `monitoring`, and `external-secrets` exist
+- `hydrosat-root` is `Synced` and `Healthy`
+- External Secrets resources are `Ready`
+- Dagster pods are running in `dagster`
+- monitoring pods are running in `monitoring`
 
-4. Validate External Secrets
+## 6. External Secrets Checks
 
 ```bash
-kubectl get clustersecretstore
 kubectl get externalsecret -A
 kubectl get secret hydrosat-dagster-db -n dagster
 kubectl get secret hydrosat-alertmanager-config -n monitoring
+kubectl get secret hydrosat-grafana-admin -n monitoring
 ```
 
 Expected result:
 
-- `hydrosat-aws-secretsmanager` is `Ready`
-- both `ExternalSecret` resources report `Ready`
-- the two target Kubernetes secrets exist
+- `hydrosat-dagster-db` is synced
+- `hydrosat-alertmanager-config` is synced
+- `hydrosat-grafana-admin` is synced
 
-5. Validate Dagster runtime
+If not:
 
 ```bash
-kubectl get pods -n dagster
-kubectl get svc -n dagster
+kubectl describe externalsecret hydrosat-dagster-db -n dagster
+kubectl describe externalsecret hydrosat-alertmanager-config -n monitoring
+kubectl describe externalsecret hydrosat-grafana-admin -n monitoring
+```
+
+Known failure patterns:
+
+- `AccessDeniedException`
+  - External Secrets IRSA policy does not include the current secret ARN
+- `SecretSyncedError`
+  - stale ARN or wrong secret shape
+
+## 7. Dagster Checks
+
+```bash
+kubectl get jobs,pods,svc -n dagster
 kubectl logs deployment/hydrosat-dagster-webserver -n dagster --tail=100
 kubectl logs deployment/hydrosat-dagster-daemon -n dagster --tail=100
 ```
 
 Expected result:
 
-- webserver, daemon, and user-code pods are `Running`
-- no `CreateContainerConfigError`
-- logs do not show RDS connection failures
+- migration job completes
+- webserver, daemon, and user-code are `Running`
 
-6. Validate monitoring stack
+If Dagster stays `OutOfSync / Missing` in Argo CD:
 
 ```bash
+kubectl describe application hydrosat-dagster -n argocd
+```
+
+Known recovery step for a stuck old migration hook:
+
+```bash
+kubectl patch job hydrosat-dagster-migrate -n dagster --type=json -p='[{"op":"remove","path":"/metadata/finalizers"}]'
+kubectl annotate application hydrosat-dagster -n argocd argocd.argoproj.io/refresh=hard --overwrite
+```
+
+## 8. Monitoring Checks
+
+```bash
+kubectl get applications -n argocd
+kubectl get pvc -A
 kubectl get pods -n monitoring
-kubectl get prometheusrules -n monitoring
+```
+
+Expected result:
+
+- Grafana, Alertmanager, Prometheus, Alloy, and Loki components are running
+
+Useful spot checks:
+
+```bash
+kubectl port-forward svc/hydrosat-monitoring-grafana 3001:80 -n monitoring
+kubectl get prometheusrule -n monitoring
 kubectl get secret hydrosat-alertmanager-config -n monitoring -o yaml
 ```
 
-Expected result:
+## 9. Known Recovery Steps
 
-- Prometheus, Alertmanager, Grafana, Loki, and Alloy pods are `Running`
-- Dagster-specific Prometheus rules exist
-- Alertmanager config secret is present
+Use these only if the normal bring-up path gets stuck.
 
-7. Validate manual alert ingestion
+### 9.1 Old kubeconfig endpoint
 
-```bash
-kubectl run curl-alert --rm -i --tty \
-  --restart=Never \
-  -n monitoring \
-  --image=curlimages/curl:8.7.1 -- \
-  curl -X POST http://hydrosat-monitoring-alertmanager.monitoring.svc.cluster.local:9093/api/v2/alerts \
-  -H 'Content-Type: application/json' \
-  -d '[{"labels":{"alertname":"ManualRunbookProbe","severity":"warning","service":"runbook"},"annotations":{"summary":"Manual runbook probe","description":"Verifies Alertmanager API reachability from the cluster"}}]'
-```
+Symptom:
 
-Expected result:
+- `kubectl` points to a destroyed EKS endpoint
 
-- request returns `200` or `202`
-- the alert appears in Alertmanager shortly after
-
-8. Optional negative-path checks
-
-- break the Dagster image tag in `helm/dagster/values-gitops.yaml` and resync to confirm Argo CD surfaces the failure
-- temporarily point an `ExternalSecret` at a bad ARN to confirm sync errors are visible
-
-If you only need the remaining live-environment validation, you can stop after this fast-path section and use the detailed sections below only when a step fails.
-
-## 1. Validation Order
-
-Run these sections in order:
-
-1. Local static validation
-2. Placeholder replacement validation
-3. GitHub Environment protection validation
-4. Backend prerequisite validation
-5. Platform Terraform validation
-6. Terraform plan and apply
-7. Cluster access validation
-8. Data lake and IRSA validation
-9. GitOps and Argo CD validation
-10. External Secrets validation
-11. Dagster runtime validation
-12. Monitoring and logging validation
-13. Alerting validation
-14. Negative-path validation
-15. Destroy and cleanup validation
-
-## 2. Test Fixtures and Placeholder Values
-
-Create a working copy of the example vars:
+Fix:
 
 ```bash
-cd /home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra
-cp terraform/backend.hcl.example terraform/backend.hcl
-cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+aws eks update-kubeconfig --region us-east-1 --name hydrosat-dev-eks
 ```
 
-Suggested demo test values:
+### 9.2 Argo CD CRD annotation size error
 
-| Component | Sample value |
-| --- | --- |
-| `project_name` | `hydrosat` |
-| `environment` | `dev` |
-| `aws_region` | `us-east-1` |
-| `cluster_endpoint_public_access_cidrs` | `["203.0.113.10/32"]` |
-| Dagster image | `docker.io/<your-user>/hydrosat-data:v0.2.0` |
-| Data lake bucket | value returned by Terraform output `data_lake_bucket_name` |
-| Slack webhook secret name | `hydrosat/dev/alertmanager` |
-| RDS secret name | value returned by Terraform output `rds_master_secret_arn` |
+Symptom:
 
-Update `terraform/terraform.tfvars` with real values for your environment.
+- Argo CD install fails with CRD annotation or apply-size conflicts
 
-Update [helm/dagster/values-gitops.yaml](helm/dagster/values-gitops.yaml) before Argo CD sync:
-
-```yaml
-image:
-  repository: docker.io/<your-user>/hydrosat-data
-  tag: v0.2.0
-
-database:
-  host: <terraform-rds-address>
-```
-
-Update [gitops/argocd/apps/hydrosat-dagster.yaml](gitops/argocd/apps/hydrosat-dagster.yaml):
-
-```yaml
-spec:
-  source:
-    repoURL: git@github.com:BranfordTGbieor/hydrosat-infra.git
-```
-
-## 3. Placeholder Replacement Validation
-
-### 3.1 Component: Remaining Placeholder Inventory
-
-Commands:
+Fix:
 
 ```bash
-rg -n "REPLACE_WITH" .
+kubectl apply --server-side -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 ```
 
-Expected success:
+### 9.3 External Secrets permission failure
 
-- the output only shows files you intentionally have not populated yet for the current demo environment
-- you understand each remaining placeholder before attempting a real apply or Argo CD sync
+Symptom:
 
-Failure signs:
+- `AccessDeniedException` on Alertmanager or Grafana secrets
 
-- placeholder values remain in files that will be used immediately for the live demo
-- the same runtime value must be replaced in multiple places and has not been reconciled
+Fix:
 
-### 3.2 Component: Live Demo Replacement Surface
+- confirm Terraform includes the current secret ARNs
+- rerun `terraform apply`
+- refresh the Argo CD apps
 
-Critical files to check:
+### 9.4 Loki immutable StatefulSet error
 
-- `helm/dagster/values-gitops.yaml`
-- `gitops/argocd/bootstrap/root-application.yaml`
-- `gitops/argocd/apps/project.yaml`
-- `gitops/argocd/apps/hydrosat-dagster.yaml`
-- `gitops/argocd/apps/external-secrets-operator.yaml`
-- `gitops/argocd/apps/external-secrets-resources.yaml`
-- `gitops/argocd/apps/monitoring-kube-prometheus-stack.yaml`
-- `gitops/argocd/apps/monitoring-loki.yaml`
-- `gitops/argocd/apps/monitoring-alloy.yaml`
-- `gitops/external-secrets/cluster-secret-store.yaml`
-- `gitops/external-secrets/dagster-db-external-secret.yaml`
-- `gitops/external-secrets/alertmanager-config-external-secret.yaml`
-- `gitops/argocd/values/external-secrets-values.yaml`
-- `gitops/argocd/values/kube-prometheus-stack-values.yaml`
+Symptom:
 
-Expected success:
+- Argo CD reports:
+  - `StatefulSet.apps "hydrosat-loki" is invalid: spec: Forbidden ...`
 
-- Git repository URLs point at the real `hydrosat-infra` repo
-- RDS secret ARN, Alertmanager notifier secret ARN, Grafana admin secret ARN, AWS region, bucket, IRSA role ARN, and RDS host are all populated
-- the Grafana chart references an existing secret instead of an inline admin password
-
-Failure signs:
-
-- Argo CD bootstrap points at the wrong repo
-- External Secrets references stale or fake ARNs
-- Dagster values still reference placeholder bucket, host, or role values
-
-## 4. GitHub Environment Protection Validation
-
-### 4.1 Component: Environment Inventory
-
-Manual checks in GitHub:
-
-- repository `Settings`
-- `Environments`
-
-Expected success:
-
-- `dev`, `qa`, and `prod` environments exist
-- environment names match the branch-to-environment mapping in `terraform-delivery.yml`
-
-Failure signs:
-
-- missing environments
-- mismatched naming such as `production` instead of `prod`
-
-### 4.2 Component: Protection Rules
-
-Manual checks in GitHub:
-
-- required reviewers for `qa` and `prod`
-- optional reviewer gate for `dev`
-- wait timer only if your team explicitly wants it
-
-Expected success:
-
-- `Terraform Apply` requires environment approval before execution
-- reviewer expectations differ sensibly by environment criticality
-
-Failure signs:
-
-- `workflow_dispatch` can apply to `prod` without reviewer approval
-- reviewers are configured on the wrong environment
-
-### 4.3 Component: Environment Variables
-
-Manual checks in GitHub:
-
-- `AWS_TERRAFORM_ROLE_ARN`
-- `TF_STATE_BUCKET`
-- `TF_LOCK_TABLE`
-- `AWS_REGION`
-
-Expected success:
-
-- the variables exist at repository or environment scope
-- higher environments can override lower-environment values safely
-
-Failure signs:
-
-- `Terraform Plan Skipped` runs because delivery variables are absent
-- apply targets the wrong region, bucket, or IAM role
-
-## 5. Local Static Validation
-
-### 5.1 Component: Repo Hygiene
-
-Commands:
+Fix:
 
 ```bash
-git status --short
-find . -maxdepth 3 -type f | sort | head -50
+kubectl delete statefulset hydrosat-loki -n monitoring
+kubectl annotate application hydrosat-loki -n argocd argocd.argoproj.io/refresh=hard --overwrite
 ```
 
-Expected success:
+### 9.5 Missing EBS storage provisioning
 
-- only intentional local files such as `terraform.tfvars`, `backend.hcl`, or local notes are untracked
-- repo layout includes `terraform/`, `helm/`, `gitops/`, and `.github/workflows/`
+Symptom:
 
-Failure signs:
+- PVCs stay `Pending`
+- event mentions `ebs.csi.aws.com`
 
-- unexpected deleted or modified tracked files
-- missing core directories
+Fix:
 
-### 5.2 Component: Terraform Formatting and Validation
+- ensure the Terraform-managed EBS CSI add-on is applied
 
-Commands:
+Verification:
 
 ```bash
-terraform fmt -check -recursive terraform
-terraform -chdir=terraform init -backend=false
-terraform -chdir=terraform validate
+kubectl get csidrivers
+kubectl get pods -n kube-system | rg ebs-csi
 ```
 
-Expected success:
+### 9.6 Pod capacity pressure
 
-- `terraform fmt -check` exits `0`
-- each `validate` command ends with `Success! The configuration is valid.`
+Symptom:
 
-Failure signs:
+- scheduler says `Too many pods`
+- or `Insufficient memory`
 
-- formatting diffs printed by `terraform fmt -check`
-- missing variables
-- provider initialization errors
-- syntax errors in module blocks or outputs
+Fix:
 
-### 5.3 Component: Helm Packaging
+- temporarily scale the node group up for validation
+- after validation, scale it back down to control cost
 
-Commands:
+## 10. Recommended Validation End State
 
-```bash
-helm lint ./helm/dagster
-helm template hydrosat-dagster ./helm/dagster > /tmp/hydrosat-dagster-rendered.yaml
-```
+The environment is in a good state when all of these are true:
 
-Expected success:
+- `kubectl get applications -n argocd` shows the platform apps healthy enough for demo use
+- `kubectl get externalsecret -A` shows all required secrets synced
+- `kubectl get pods -n dagster` shows Dagster workloads running
+- `kubectl get pods -n monitoring` shows the monitoring stack running
+- Grafana is reachable by port-forward
+- Dagster is reachable by port-forward
 
-- `helm lint` prints `1 chart(s) linted, 0 chart(s) failed`
-- rendered file contains `Deployment`, `Service`, `Job`, `NetworkPolicy`, and `PodDisruptionBudget`
+## 11. Scale Down or Destroy After Validation
 
-Failure signs:
+If you only need a short validation window:
 
-- template rendering errors
-- unresolved values
-- invalid YAML in templates
-
-Quick verification:
-
-```bash
-rg "kind: (Deployment|Job|NetworkPolicy|PodDisruptionBudget)" /tmp/hydrosat-dagster-rendered.yaml
-```
-
-### 5.4 Component: GitOps and Observability Chart Rendering
-
-Commands:
-
-```bash
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add grafana https://grafana.github.io/helm-charts
-helm repo add external-secrets https://charts.external-secrets.io
-helm repo update
-
-helm template hydrosat-monitoring prometheus-community/kube-prometheus-stack \
-  --version 82.16.0 \
-  -f gitops/argocd/values/kube-prometheus-stack-values.yaml \
-  > /tmp/hydrosat-monitoring-rendered.yaml
-
-helm template hydrosat-loki grafana/loki \
-  --version 6.53.0 \
-  -f gitops/argocd/values/loki-values.yaml \
-  > /tmp/hydrosat-loki-rendered.yaml
-
-helm template hydrosat-alloy grafana/alloy \
-  --version 1.5.3 \
-  -f gitops/argocd/values/alloy-values.yaml \
-  > /tmp/hydrosat-alloy-rendered.yaml
-
-helm template hydrosat-external-secrets external-secrets/external-secrets \
-  --version 2.2.0 \
-  -f gitops/argocd/values/external-secrets-values.yaml \
-  > /tmp/hydrosat-external-secrets-rendered.yaml
-```
-
-Expected success:
-
-- all four commands exit `0`
-- rendered monitoring output contains Alertmanager, Prometheus, and Grafana objects
-- rendered External Secrets output contains CRDs or controller resources from the chart
-
-Failure signs:
-
-- missing chart repo
-- bad values structure
-- version mismatch
-
-## 6. Backend Prerequisite Validation
-
-### 6.1 Component: Remote State Backend Inputs
-
-Files:
-
-- [terraform/backend.hcl.example](terraform/backend.hcl.example)
-- [terraform/backend.hcl](terraform/backend.hcl)
-
-Commands:
-
-```bash
-cat terraform/backend.hcl
-aws s3api head-bucket --bucket "<state-bucket-name>"
-aws dynamodb describe-table --table-name "<lock-table-name>"
-```
-
-Expected success:
-
-- `backend.hcl` points at a real S3 bucket and DynamoDB table
-- the bucket already exists and is reachable
-- the lock table already exists and is reachable
-
-Failure signs:
-
-- bucket name typo or region mismatch
-- missing lock table
-- insufficient AWS permissions to inspect backend resources
-
-## 7. Platform Terraform Validation
-
-### 7.1 Component: Main Platform Stack
-
-Files:
-
-- [terraform/main.tf](terraform/main.tf)
-- [terraform/variables.tf](terraform/variables.tf)
-- [terraform/outputs.tf](terraform/outputs.tf)
-
-Commands:
-
-```bash
-terraform -chdir=terraform init -backend-config=backend.hcl
-terraform -chdir=terraform plan
-```
-
-Expected success:
-
-- init completes successfully against the remote backend
-- plan includes VPC, subnets, NAT, EKS, node group, IAM roles, RDS, and platform resources
-- no undeclared variable warnings remain in your local `terraform.tfvars`
-
-Failure signs:
-
-- backend authentication failure
-- module/provider download failure
-- undeclared vars such as stale `enable_alerting` or `alert_email_endpoint`
-- invalid CIDR or AZ configuration
-
-### 7.2 Component: Apply the Main Stack
+- scale the node group back down in local `terraform.tfvars`
+- or destroy the stack entirely
 
 Commands:
 
 ```bash
 terraform -chdir=terraform apply
-terraform -chdir=terraform output
-```
-
-Expected success:
-
-- apply completes without errors
-- outputs include:
-  - `cluster_name`
-  - `aws_region`
-  - `data_lake_bucket_name`
-  - `dagster_service_account_role_arn`
-  - `rds_address`
-  - `rds_master_secret_arn`
-  - `kubectl_config_command`
-
-Failure signs:
-
-- EKS node group creation failure
-- RDS subnet/security-group issues
-- IAM trust-policy or OIDC issues for External Secrets
-
-## 8. Cluster Access Validation
-
-### 8.1 Component: EKS Access
-
-Sample command from Terraform output:
-
-```bash
-aws eks update-kubeconfig --region us-east-1 --name hydrosat-dev-eks
-kubectl config current-context
-kubectl get nodes -o wide
-```
-
-Expected success:
-
-- context switches to the new cluster
-- `kubectl get nodes` shows Ready nodes
-
-Failure signs:
-
-- `You must be logged in to the server`
-- public endpoint CIDR mismatch
-- missing IAM auth mapping
-
-### 8.2 Component: Core Namespaces
-
-Commands:
-
-```bash
-kubectl get ns
-kubectl get ns argocd dagster monitoring external-secrets
-```
-
-Expected success:
-
-- namespaces exist after bootstrap and Argo CD sync
-
-Failure signs:
-
-- namespace not found
-- Argo CD app not yet synced
-
-## 9. Data Lake and IRSA Validation
-
-### 9.1 Component: S3 Data Lake Bucket
-
-Commands:
-
-```bash
-terraform -chdir=terraform output data_lake_bucket_name
-terraform -chdir=terraform output data_lake_bucket_arn
-aws s3api head-bucket --bucket "$(terraform -chdir=terraform output -raw data_lake_bucket_name)"
-```
-
-Expected success:
-
-- Terraform outputs a bucket name and ARN
-- `head-bucket` exits successfully
-
-Failure signs:
-
-- bucket missing
-- access denied due to wrong AWS credentials or wrong account
-
-### 9.2 Component: Dagster IRSA Role
-
-Commands:
-
-```bash
-terraform -chdir=terraform output dagster_service_account_role_arn
-kubectl get sa hydrosat-dagster -n dagster -o yaml
-```
-
-Expected success:
-
-- Terraform outputs a valid IAM role ARN
-- the Dagster service account annotation includes `eks.amazonaws.com/role-arn`
-
-Failure signs:
-
-- role output missing
-- service account annotation absent or still placeholder-valued
-
-## 10. GitOps and Argo CD Validation
-
-### 10.1 Component: Argo CD Bootstrap
-
-Commands:
-
-```bash
-kubectl apply -n argocd -f gitops/argocd/bootstrap/root-application.yaml
-kubectl get applications -n argocd
-kubectl describe application root-applications -n argocd
-```
-
-Expected success:
-
-- root application exists in `argocd`
-- child apps appear:
-  - `hydrosat-dagster`
-  - `monitoring-kube-prometheus-stack`
-  - `monitoring-loki`
-  - `monitoring-alloy`
-  - `external-secrets-operator`
-  - `external-secrets-resources`
-
-Failure signs:
-
-- invalid Git repo URL
-- missing SSH credentials or repo access in Argo CD
-- application stuck in `Unknown` or `OutOfSync`
-
-### 10.2 Component: Argo CD Sync Health
-
-Commands:
-
-```bash
-kubectl get applications -n argocd
-argocd app list
-argocd app get hydrosat-dagster
-argocd app wait hydrosat-dagster --health --sync
-```
-
-Expected success:
-
-- apps are `Synced` and `Healthy`
-- no repeated reconciliation errors
-
-Failure signs:
-
-- `Missing` resources
-- Helm render failure inside Argo CD
-- unhealthy child apps due to invalid values or unavailable image
-
-## 11. External Secrets Validation
-
-### 11.1 Component: AWS Secrets Manager Inputs
-
-Create or verify the alertmanager config secret value. Example payload:
-
-```yaml
-global:
-  resolve_timeout: 5m
-route:
-  receiver: slack
-receivers:
-  - name: slack
-    slack_configs:
-      - api_url: https://hooks.slack.com/services/T000/B000/XXXX
-        channel: "#hydrosat-alerts"
-        send_resolved: true
-```
-
-Recommended command shape:
-
-```bash
-aws secretsmanager put-secret-value \
-  --secret-id hydrosat/dev/alertmanager \
-  --secret-string file://alertmanager-config.yaml
-```
-
-Expected success:
-
-- AWS returns a new version id
-
-Failure signs:
-
-- secret does not exist
-- malformed YAML string if manually escaped incorrectly
-
-### 11.2 Component: ClusterSecretStore
-
-Commands:
-
-```bash
-kubectl get clustersecretstore
-kubectl describe clustersecretstore aws-secretsmanager
-```
-
-Expected success:
-
-- store is present and reports valid provider configuration
-
-Failure signs:
-
-- auth errors against AWS
-- service account IRSA annotation missing
-
-### 11.3 Component: ExternalSecret Resources
-
-Commands:
-
-```bash
-kubectl get externalsecret -A
-kubectl describe externalsecret hydrosat-dagster-db -n dagster
-kubectl describe externalsecret hydrosat-alertmanager-config -n monitoring
-kubectl get secret hydrosat-dagster-db -n dagster -o yaml
-kubectl get secret hydrosat-alertmanager-config -n monitoring -o yaml
-```
-
-Expected success:
-
-- both ExternalSecrets show a recent successful refresh time
-- `hydrosat-dagster-db` secret exists in `dagster`
-- `hydrosat-alertmanager-config` secret exists in `monitoring`
-
-Failure signs:
-
-- `SecretSyncedError`
-- `AccessDeniedException`
-- target secret absent or empty
-
-## 12. Dagster Runtime Validation
-
-### 12.1 Component: Helm-Managed Dagster Workloads
-
-Commands:
-
-```bash
-kubectl get deploy,po,svc,pdb,job -n dagster
-kubectl rollout status deploy/hydrosat-dagster-webserver -n dagster
-kubectl rollout status deploy/hydrosat-dagster-daemon -n dagster
-kubectl rollout status deploy/hydrosat-dagster-user-code -n dagster
-```
-
-Expected success:
-
-- webserver, daemon, and user-code deployments are `Available`
-- migration job completes successfully
-- services exist for webserver and user-code
-
-Failure signs:
-
-- `ImagePullBackOff`
-- migration job crash loop
-- `CreateContainerConfigError` due to missing DB secret or Alertmanager URL
-
-### 12.2 Component: Dagster Web UI Reachability
-
-Commands:
-
-```bash
-kubectl get svc hydrosat-dagster-webserver -n dagster
-kubectl port-forward svc/hydrosat-dagster-webserver 3000:3000 -n dagster
-```
-
-Open:
-
-```text
-http://127.0.0.1:3000
-```
-
-Expected success:
-
-- Dagster UI loads
-- `hydrosat_demo_job` is visible
-- no startup errors shown in daemon or webserver logs
-
-Failure signs:
-
-- connection refused
-- webserver pods not Ready
-- RDS connectivity errors in logs
-
-### 12.3 Component: RDS Connectivity from Dagster
-
-Commands:
-
-```bash
-kubectl logs deploy/hydrosat-dagster-webserver -n dagster --tail=100
-kubectl logs deploy/hydrosat-dagster-daemon -n dagster --tail=100
-kubectl logs job/hydrosat-dagster-migrate -n dagster --tail=100
-```
-
-Expected success:
-
-- no repeated authentication or network failures
-- migration logs show successful schema migration or no-op completion
-
-Failure signs:
-
-- `password authentication failed`
-- `could not connect to server`
-- `relation does not exist`
-
-### 12.4 Component: Data Lake Environment Wiring
-
-Commands:
-
-```bash
-kubectl get deploy hydrosat-dagster-user-code -n dagster -o yaml | rg "HYDROSAT_DATA_LAKE_(BUCKET|PREFIX)"
-kubectl get sa hydrosat-dagster -n dagster -o yaml | rg "eks.amazonaws.com/role-arn"
-```
-
-Expected success:
-
-- the user-code deployment includes `HYDROSAT_DATA_LAKE_BUCKET`
-- the user-code deployment includes `HYDROSAT_DATA_LAKE_PREFIX`
-- the Dagster service account includes the IRSA role annotation
-
-Failure signs:
-
-- missing lake env vars
-- missing service account role annotation
-
-## 13. Monitoring and Logging Validation
-
-### 13.1 Component: Monitoring Stack Pods
-
-Commands:
-
-```bash
-kubectl get pods -n monitoring
-kubectl get svc -n monitoring
-```
-
-Expected success:
-
-- Prometheus, Alertmanager, Grafana, Loki gateway, and Alloy are running
-
-Failure signs:
-
-- pending pods due to storage or scheduling issues
-- crash looping Grafana or Alertmanager pods
-
-### 13.2 Component: Grafana Reachability
-
-Commands:
-
-```bash
-kubectl port-forward svc/hydrosat-monitoring-grafana 3001:80 -n monitoring
-```
-
-Open:
-
-```text
-http://127.0.0.1:3001
-```
-
-Expected success:
-
-- Grafana login page loads
-- Loki appears as a configured data source
-
-Failure signs:
-
-- service not found
-- Grafana pod not ready
-
-### 13.3 Component: Prometheus Rule Presence
-
-Commands:
-
-```bash
-kubectl get prometheusrule -n monitoring
-kubectl get prometheusrule hydrosat-monitoring-hydrosat-dagster -n monitoring -o yaml
-```
-
-Expected success:
-
-- rules include:
-  - `DagsterWebserverUnavailable`
-  - `DagsterUserCodeUnavailable`
-  - `DagsterPodsRestartingFrequently`
-
-Failure signs:
-
-- rules absent because chart rendering or Argo CD sync failed
-
-### 13.4 Component: Loki Log Availability
-
-Commands:
-
-```bash
-kubectl logs -n monitoring deploy/hydrosat-alloy --tail=100
-kubectl logs -n monitoring statefulset/hydrosat-loki-backend --tail=100
-```
-
-Expected success:
-
-- Alloy shows successful shipping behavior
-- Loki backend logs do not show repeated ingestion failures
-
-Failure signs:
-
-- remote write or push errors
-- DNS or service-discovery failures
-
-## 14. Alerting Validation
-
-### 14.1 Component: Alertmanager API Reachability
-
-Sample test payload:
-
-```json
-[
-  {
-    "labels": {
-      "alertname": "ManualSmokeTest",
-      "severity": "warning",
-      "service": "runbook"
-    },
-    "annotations": {
-      "summary": "Manual smoke alert",
-      "description": "Verifies Alertmanager API reachability from the cluster"
-    },
-    "startsAt": "2026-04-03T10:00:00Z"
-  }
-]
-```
-
-Commands:
-
-```bash
-kubectl run am-curl --rm -it --restart=Never -n monitoring \
-  --image=curlimages/curl:8.7.1 \
-  --command -- sh
-```
-
-Inside the temporary shell:
-
-```bash
-cat <<'EOF' >/tmp/alert.json
-[
-  {
-    "labels": {
-      "alertname": "ManualSmokeTest",
-      "severity": "warning",
-      "service": "runbook"
-    },
-    "annotations": {
-      "summary": "Manual smoke alert",
-      "description": "Verifies Alertmanager API reachability from the cluster"
-    },
-    "startsAt": "2026-04-03T10:00:00Z"
-  }
-]
-EOF
-
-curl -i -X POST \
-  -H 'Content-Type: application/json' \
-  --data @/tmp/alert.json \
-  http://hydrosat-monitoring-alertmanager.monitoring.svc.cluster.local:9093/api/v2/alerts
-```
-
-Expected success:
-
-- HTTP response `200 OK`
-- alert appears in Alertmanager UI shortly after
-- downstream Slack or email receiver receives the notification if configured
-
-Failure signs:
-
-- `404` due to wrong path
-- `503` due to Alertmanager not ready
-- no downstream delivery because receiver config secret is invalid
-
-### 14.2 Component: Prometheus-Driven Alert Path
-
-Commands:
-
-```bash
-kubectl scale deploy/hydrosat-dagster-user-code -n dagster --replicas=0
-kubectl get deploy hydrosat-dagster-user-code -n dagster -w
-```
-
-Expected success:
-
-- after rule threshold is met, Alertmanager receives `DagsterUserCodeUnavailable`
-
-Failure signs:
-
-- alert never fires because Prometheus rule is missing
-- alert fires but no receiver notification occurs
-
-Rollback:
-
-```bash
-kubectl scale deploy/hydrosat-dagster-user-code -n dagster --replicas=1
-kubectl rollout status deploy/hydrosat-dagster-user-code -n dagster
-```
-
-## 15. Negative-Path Validation
-
-### 15.1 Component: Secret Sync Failure Detection
-
-Induce a failure by referencing a nonexistent AWS secret in a temporary test ExternalSecret.
-
-Sample manifest:
-
-```yaml
-apiVersion: external-secrets.io/v1
-kind: ExternalSecret
-metadata:
-  name: invalid-secret-test
-  namespace: dagster
-spec:
-  refreshInterval: 1m
-  secretStoreRef:
-    kind: ClusterSecretStore
-    name: aws-secretsmanager
-  target:
-    name: invalid-secret-test
-  data:
-    - secretKey: password
-      remoteRef:
-        key: does/not/exist
-```
-
-Commands:
-
-```bash
-kubectl apply -f invalid-secret-test.yaml
-kubectl describe externalsecret invalid-secret-test -n dagster
-kubectl delete -f invalid-secret-test.yaml
-```
-
-Expected success:
-
-- failure is visible and diagnosable
-- operator reports sync error clearly
-
-Failure signs:
-
-- no status updates at all, suggesting controller issues
-
-### 15.2 Component: Dagster Image Pull Failure Detection
-
-Induce a failure by setting a bogus image tag in [helm/dagster/values-gitops.yaml](helm/dagster/values-gitops.yaml), syncing Argo CD, and observing the resulting failure.
-
-Sample bad value:
-
-```yaml
-image:
-  repository: docker.io/<your-user>/hydrosat-dagster
-  tag: does-not-exist
-```
-
-Commands:
-
-```bash
-argocd app sync hydrosat-dagster
-kubectl get pods -n dagster
-kubectl describe pod -n dagster <failing-pod-name>
-```
-
-Expected success:
-
-- pods enter `ImagePullBackOff`
-- error is visible in Argo CD and Kubernetes events
-
-Failure signs:
-
-- silent success despite invalid image tag, which would indicate cached or stale values
-
-Rollback:
-
-- restore the correct image tag
-- sync Argo CD again
-
-## 16. Destroy and Cleanup Validation
-
-### 16.1 Component: Terraform Destroy
-
-Commands:
-
-```bash
-terraform -chdir=terraform plan -destroy
 terraform -chdir=terraform destroy
 ```
 
-Expected success:
-
-- EKS, node groups, NAT, RDS, and related resources are removed
-
-Failure signs:
-
-- dangling Kubernetes-managed AWS load balancers
-- security groups in use
-- lingering ENIs or finalizers
-
-### 16.2 Component: Optional Backend Cleanup
-
-Only do this after the main platform stack is gone and remote state is no longer needed.
-
-Commands:
-
-```bash
-aws dynamodb delete-table --table-name "<lock-table-name>"
-aws s3 rb "s3://<state-bucket-name>" --force
-```
-
-Expected success:
-
-- lock table and state bucket are removed
-
-Failure signs:
-
-- bucket not empty
-- backend still in use by Terraform
-
-## 17. Completion Criteria
-
-You can treat infra validation as complete when all of the following are true:
-
-- Terraform backend prerequisite and platform stack both validate cleanly
-- EKS cluster is reachable
-- the S3 data lake bucket exists and Dagster IRSA is configured
-- Argo CD apps are `Synced` and `Healthy`
-- External Secrets syncs both Dagster DB and Alertmanager config secrets
-- Dagster deployments are healthy
-- Dagster can connect to RDS
-- Grafana, Prometheus, Alertmanager, Loki, and Alloy are running
-- Alertmanager accepts manual test alerts
-- at least one negative-path test produces a clear, diagnosable failure
+Use destroy when you are done and want to eliminate AWS cost completely.
