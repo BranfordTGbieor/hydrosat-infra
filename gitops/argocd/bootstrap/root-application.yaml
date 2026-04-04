@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: REPLACE_WITH_GIT_REPOSITORY_URL
+    repoURL: git@github.com:BranfordTGbieor/hydrosat-infra.git
     targetRevision: HEAD
     path: gitops/argocd/apps
   destination:

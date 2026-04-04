@@ -369,19 +369,32 @@ The GitOps flow expects:
 
 1. The RDS master secret created by Terraform.
 2. A separate secret for Alertmanager notification settings.
+3. A separate secret for Grafana admin credentials.
 
-Example notifier secret payload:
+Example Slack-only Alertmanager secret payload:
 
 ```json
 {
   "slackWebhookUrl": "https://hooks.slack.com/services/...",
-  "slackChannel": "#hydrosat-alerts",
-  "emailTo": "oncall@example.com",
-  "smtpSmarthost": "smtp.example.com:587",
-  "smtpFrom": "hydrosat-alerts@example.com",
-  "smtpAuthUsername": "smtp-user",
-  "smtpAuthPassword": "smtp-password"
+  "slackChannel": "#hydrosat-alerts"
 }
+```
+
+Example Grafana admin secret payload:
+
+```json
+{
+  "adminUser": "admin",
+  "adminPassword": "replace-me"
+}
+```
+
+To avoid re-editing ARNs and Terraform outputs after every fresh apply, use:
+
+```bash
+ALERTMANAGER_SECRET_ARN=arn:aws:secretsmanager:... \
+GRAFANA_ADMIN_SECRET_ARN=arn:aws:secretsmanager:... \
+./scripts/sync-live-config.sh
 ```
 
 ### 7. Deploy with Argo CD
@@ -390,17 +403,9 @@ This is the preferred steady-state path.
 
 Before bootstrap:
 
-1. Replace repository and environment placeholders in:
-   - `gitops/argocd/bootstrap/root-application.yaml`
-   - `gitops/argocd/apps/project.yaml`
-   - `gitops/argocd/apps/hydrosat-dagster.yaml`
-   - `helm/dagster/values-gitops.yaml`
-2. Replace the Grafana admin password placeholder in `gitops/argocd/values/kube-prometheus-stack-values.yaml`.
-3. Replace placeholders in:
-   - `gitops/argocd/values/external-secrets-values.yaml`
-   - `gitops/external-secrets/cluster-secret-store.yaml`
-   - `gitops/external-secrets/dagster-db-external-secret.yaml`
-   - `gitops/external-secrets/alertmanager-config-external-secret.yaml`
+1. Ensure the Alertmanager and Grafana secrets exist in AWS Secrets Manager.
+2. Run `./scripts/sync-live-config.sh` with the two secret ARNs exported.
+3. Review and commit the generated GitOps changes.
 
 Then apply the root application:
 
@@ -552,47 +557,29 @@ The split-repo model is intended to mirror the cleaner long-term operating model
 
 ## Live Demo Placeholder Inventory
 
-Before a real demo deployment, replace the remaining placeholder values in one pass so Argo CD, External Secrets, and the Dagster chart point at the live environment.
+Before a real demo deployment, keep the repo generic and use the sync helper to inject the current live values after each fresh Terraform apply.
 
-Git repository placeholders:
+Files refreshed by `./scripts/sync-live-config.sh`:
 
-- `gitops/argocd/bootstrap/root-application.yaml`
-- `gitops/argocd/apps/project.yaml`
-- `gitops/argocd/apps/hydrosat-dagster.yaml`
-- `gitops/argocd/apps/external-secrets-operator.yaml`
-- `gitops/argocd/apps/external-secrets-resources.yaml`
-- `gitops/argocd/apps/monitoring-kube-prometheus-stack.yaml`
-- `gitops/argocd/apps/monitoring-loki.yaml`
-- `gitops/argocd/apps/monitoring-alloy.yaml`
-
-AWS and secret-integration placeholders:
-
+- `gitops/argocd/values/external-secrets-values.yaml`
 - `gitops/external-secrets/cluster-secret-store.yaml`
 - `gitops/external-secrets/dagster-db-external-secret.yaml`
 - `gitops/external-secrets/alertmanager-config-external-secret.yaml`
-- `gitops/argocd/values/external-secrets-values.yaml`
-
-Dagster runtime placeholders:
-
+- `gitops/external-secrets/grafana-admin-external-secret.yaml`
 - `helm/dagster/values-gitops.yaml`
-  - `REPLACE_WITH_DAGSTER_DATA_ACCESS_ROLE_ARN`
-  - `REPLACE_WITH_DATA_LAKE_BUCKET`
-  - `REPLACE_WITH_RDS_ADDRESS`
 
-Demo-only bootstrap placeholders:
+Inputs required by the sync script:
 
-- `gitops/argocd/values/kube-prometheus-stack-values.yaml`
-  - `REPLACE_WITH_GRAFANA_ADMIN_PASSWORD`
+1. current Terraform outputs from the applied environment
+2. `ALERTMANAGER_SECRET_ARN`
+3. `GRAFANA_ADMIN_SECRET_ARN`
+
+The only intentionally generic chart placeholder left after that is:
+
 - `helm/dagster/values.yaml`
   - `REPLACE_WITH_CONTAINER_IMAGE_REPOSITORY`
 
-Recommended replacement order:
-
-1. Terraform apply and capture outputs
-2. replace AWS-region, secret-ARN, and IRSA placeholders
-3. replace Dagster runtime values such as bucket, RDS host, and role ARN
-4. replace Git repository URLs for Argo CD bootstrap
-5. replace Grafana admin password and any remaining chart defaults
+That file is not the GitOps source of truth; Argo CD uses `helm/dagster/values-gitops.yaml`.
 
 ## Security
 

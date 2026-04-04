@@ -32,12 +32,20 @@ Already completed earlier in the exercise:
 - EKS cluster creation
 - managed node group creation
 
-Before continuing, make sure these tracked placeholders are replaced:
+Before continuing, make sure the AWS Secrets Manager inputs exist and then sync the live GitOps values:
 
-- `gitops/external-secrets/alertmanager-config-external-secret.yaml`
-  - `REPLACE_WITH_ALERTMANAGER_NOTIFIER_SECRET_ARN`
-- `gitops/argocd/values/kube-prometheus-stack-values.yaml`
-  - `REPLACE_WITH_GRAFANA_ADMIN_PASSWORD`
+```bash
+export ALERTMANAGER_SECRET_ARN=arn:aws:secretsmanager:...
+export GRAFANA_ADMIN_SECRET_ARN=arn:aws:secretsmanager:...
+./scripts/sync-live-config.sh
+git diff
+```
+
+Expected result:
+
+- the current Terraform outputs are written into the GitOps manifests
+- the current Alertmanager and Grafana secret ARNs are written into the ExternalSecret resources
+- no `REPLACE_WITH` placeholders remain in live bootstrap files
 
 Then run the remaining validation flow in this order:
 
@@ -54,6 +62,9 @@ kubectl get ns
 ```bash
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+git add gitops helm/dagster/values-gitops.yaml
+git commit -m "Sync live GitOps environment values"
+git push
 kubectl apply -f gitops/argocd/bootstrap/root-application.yaml
 kubectl get pods -n argocd
 kubectl get applications -n argocd
@@ -246,8 +257,8 @@ Critical files to check:
 Expected success:
 
 - Git repository URLs point at the real `hydrosat-infra` repo
-- RDS secret ARN, Alertmanager notifier secret ARN, AWS region, bucket, IRSA role ARN, and RDS host are all populated
-- Grafana admin password placeholder is removed for the demo environment
+- RDS secret ARN, Alertmanager notifier secret ARN, Grafana admin secret ARN, AWS region, bucket, IRSA role ARN, and RDS host are all populated
+- the Grafana chart references an existing secret instead of an inline admin password
 
 Failure signs:
 

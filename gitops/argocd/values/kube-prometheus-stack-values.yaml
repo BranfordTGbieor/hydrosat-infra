@@ -26,7 +26,10 @@ defaultRules:
 
 grafana:
   defaultDashboardsTimezone: utc
-  adminPassword: "REPLACE_WITH_GRAFANA_ADMIN_PASSWORD"
+  admin:
+    existingSecret: hydrosat-grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
   service:
     type: ClusterIP
   additionalDataSources:

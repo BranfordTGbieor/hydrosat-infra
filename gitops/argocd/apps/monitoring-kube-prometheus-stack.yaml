@@ -15,7 +15,7 @@ spec:
         releaseName: hydrosat-monitoring
         valueFiles:
           - $values/gitops/argocd/values/kube-prometheus-stack-values.yaml
-    - repoURL: REPLACE_WITH_GIT_REPOSITORY_URL
+    - repoURL: git@github.com:BranfordTGbieor/hydrosat-infra.git
       targetRevision: HEAD
       ref: values
   destination:
