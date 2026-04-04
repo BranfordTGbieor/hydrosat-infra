@@ -65,7 +65,7 @@ Suggested demo test values:
 
 Update `terraform/terraform.tfvars` with real values for your environment.
 
-Update [helm/dagster/values-gitops.yaml](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/helm/dagster/values-gitops.yaml) before Argo CD sync:
+Update [helm/dagster/values-gitops.yaml](helm/dagster/values-gitops.yaml) before Argo CD sync:
 
 ```yaml
 image:
@@ -76,7 +76,7 @@ database:
   host: <terraform-rds-address>
 ```
 
-Update [gitops/argocd/apps/hydrosat-dagster.yaml](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/gitops/argocd/apps/hydrosat-dagster.yaml):
+Update [gitops/argocd/apps/hydrosat-dagster.yaml](gitops/argocd/apps/hydrosat-dagster.yaml):
 
 ```yaml
 spec:
@@ -309,8 +309,8 @@ Failure signs:
 
 Files:
 
-- [terraform/backend.hcl.example](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/terraform/backend.hcl.example)
-- [terraform/backend.hcl](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/terraform/backend.hcl)
+- [terraform/backend.hcl.example](terraform/backend.hcl.example)
+- [terraform/backend.hcl](terraform/backend.hcl)
 
 Commands:
 
@@ -338,9 +338,9 @@ Failure signs:
 
 Files:
 
-- [terraform/main.tf](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/terraform/main.tf)
-- [terraform/variables.tf](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/terraform/variables.tf)
-- [terraform/outputs.tf](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/terraform/outputs.tf)
+- [terraform/main.tf](terraform/main.tf)
+- [terraform/variables.tf](terraform/variables.tf)
+- [terraform/outputs.tf](terraform/outputs.tf)
 
 Commands:
 
@@ -916,7 +916,7 @@ Failure signs:
 
 ### 15.2 Component: Dagster Image Pull Failure Detection
 
-Induce a failure by setting a bogus image tag in [helm/dagster/values-gitops.yaml](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/helm/dagster/values-gitops.yaml), syncing Argo CD, and observing the resulting failure.
+Induce a failure by setting a bogus image tag in [helm/dagster/values-gitops.yaml](helm/dagster/values-gitops.yaml), syncing Argo CD, and observing the resulting failure.
 
 Sample bad value:
 

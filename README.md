@@ -479,7 +479,7 @@ terraform validate
 
 ### CI Workflow
 
-Branch CI lives in [ci.yml](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/.github/workflows/ci.yml).
+Branch CI lives in [ci.yml](.github/workflows/ci.yml).
 
 It covers:
 
@@ -491,7 +491,7 @@ It covers:
 
 ### Terraform Delivery Workflow
 
-Governed Terraform delivery lives in [terraform-delivery.yml](/home/branford-t-gbieor/Desktop/gbieor/applications/exercises/hydrosat/hydrosat-infra/.github/workflows/terraform-delivery.yml).
+Governed Terraform delivery lives in [terraform-delivery.yml](.github/workflows/terraform-delivery.yml).
 
 Design choices:
 
